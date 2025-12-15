@@ -1,21 +1,72 @@
 // src/App.jsx
+import { useState, useEffect } from 'react';
 import Navbar from './components/Navbar';
+import Auth from './components/Auth';
+import Home from './components/Home';
+import HostelOwnerDashboard from './components/HostelOwnerDashboard';
+import MessOwnerDashboard from './components/MessOwnerDashboard';
+import AdminDashboard from './components/AdminDashboard';
 
 function App() {
+  const [user, setUser] = useState(null);
+  const [view, setView] = useState('home');
+  const [useMockData] = useState(true); // Toggle for mock data
+
+  useEffect(() => {
+    const storedUser = localStorage.getItem('staymate_user');
+    if (storedUser) {
+      setUser(JSON.parse(storedUser));
+      setView('dashboard');
+    }
+  }, []);
+
+  // Mock signup/login (works without backend)
+  const handleLogin = (userData) => {
+    const mockUser = {
+      id: Date.now(),
+      name: userData.name || 'Test User',
+      email: userData.email,
+      role: userData.role || 'guest',
+      created_at: new Date().toISOString()
+    };
+    
+    setUser(mockUser);
+    localStorage.setItem('staymate_user', JSON.stringify(mockUser));
+    setView('dashboard');
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    localStorage.removeItem('staymate_user');
+    setView('home');
+  };
+
+  const renderDashboard = () => {
+    if (!user) return null;
+
+    switch (user.role) {
+      case 'hostel_owner':
+        return <HostelOwnerDashboard user={user} useMockData={useMockData} />;
+      case 'mess_owner':
+        return <MessOwnerDashboard user={user} useMockData={useMockData} />;
+      case 'guest':
+        return <Home user={user} useMockData={useMockData} />;
+      default:
+        return <AdminDashboard useMockData={useMockData} />;
+    }
+  };
+
   return (
-    <div className="bg-light min-vh-100">
-      <Navbar />
+    <div style={{ backgroundColor: '#f8f9fa', minHeight: '100vh' }}>
+      <Navbar 
+        user={user} 
+        onLogout={handleLogout}
+        onNavigate={setView}
+      />
       
-      {/* Hero Section */}
-      <div className="container text-center py-5">
-        <h1 className="display-4 fw-bold text-primary">Find Your Thikana</h1>
-        <p className="lead text-muted">Search for Hostels & Mess services in your city</p>
-        
-        {/* Placeholder for Search Cards (We build this tomorrow) */}
-        <div className="alert alert-info mt-4" role="alert">
-          Backend data will load here tomorrow!
-        </div>
-      </div>
+      {view === 'auth' && <Auth onLogin={handleLogin} useMockData={useMockData} />}
+      {view === 'home' && <Home user={user} useMockData={useMockData} />}
+      {view === 'dashboard' && renderDashboard()}
     </div>
   );
 }

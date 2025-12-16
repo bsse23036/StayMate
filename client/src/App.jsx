@@ -11,6 +11,7 @@ function App() {
   const [user, setUser] = useState(null);
   const [view, setView] = useState('home');
   const [useMockData] = useState(true); // Toggle for mock data
+  const API_URL = "https://fpyn6pr5z6flgsrxxaufuz35w40dwhfp.lambda-url.us-east-1.on.aws";
 
   useEffect(() => {
     const storedUser = localStorage.getItem('staymate_user');

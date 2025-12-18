@@ -5,35 +5,49 @@ import Auth from './components/Auth';
 import Home from './components/Home';
 import HostelOwnerDashboard from './components/HostelOwnerDashboard';
 import MessOwnerDashboard from './components/MessOwnerDashboard';
-import AdminDashboard from './components/AdminDashboard';
+import AdminDashboard from './components/AdminDashboard'; // Optional if you have this
 
 function App() {
   const [user, setUser] = useState(null);
   const [view, setView] = useState('home');
-  const [useMockData] = useState(true); // Toggle for mock data
-  const API_URL = "https://fpyn6pr5z6flgsrxxaufuz35w40dwhfp.lambda-url.us-east-1.on.aws";
+  
+  // 1. THIS IS YOUR REAL AWS GATEWAY URL
+  const API_URL = "https://wz81rzb6g4.execute-api.us-east-1.amazonaws.com"; 
 
+  // Load user from local storage on startup
   useEffect(() => {
     const storedUser = localStorage.getItem('staymate_user');
     if (storedUser) {
       setUser(JSON.parse(storedUser));
-      setView('dashboard');
     }
   }, []);
 
-  // Mock signup/login (works without backend)
-  const handleLogin = (userData) => {
-    const mockUser = {
-      id: Date.now(),
-      name: userData.name || 'Test User',
-      email: userData.email,
-      role: userData.role || 'guest',
-      created_at: new Date().toISOString()
-    };
-    
-    setUser(mockUser);
-    localStorage.setItem('staymate_user', JSON.stringify(mockUser));
-    setView('dashboard');
+  // 2. REAL LOGIN FUNCTION (Talks to your AWS Backend)
+  const handleLogin = async (credentials, isSignup = false) => {
+    try {
+        const endpoint = isSignup ? '/register' : '/login';
+        
+        // Send request to your Lambda via API Gateway
+        const res = await fetch(`${API_URL}${endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(credentials)
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+            // Save the real user from Postgres
+            setUser(data.user);
+            localStorage.setItem('staymate_user', JSON.stringify(data.user));
+            setView('dashboard');
+        } else {
+            alert("Error: " + data.message);
+        }
+    } catch (err) {
+        console.error("Login Error:", err);
+        alert("Connection failed! Check your API Gateway URL.");
+    }
   };
 
   const handleLogout = () => {
@@ -45,15 +59,17 @@ function App() {
   const renderDashboard = () => {
     if (!user) return null;
 
+    // Pass API_URL so dashboards can fetch real data
     switch (user.role) {
       case 'hostel_owner':
-        return <HostelOwnerDashboard user={user} useMockData={useMockData} />;
+        return <HostelOwnerDashboard user={user} apiUrl={API_URL} />;
       case 'mess_owner':
-        return <MessOwnerDashboard user={user} useMockData={useMockData} />;
+        return <MessOwnerDashboard user={user} apiUrl={API_URL} />;
       case 'guest':
-        return <Home user={user} useMockData={useMockData} />;
+        // Guests usually just see the Home page search, but if you have a dashboard:
+        return <Home user={user} apiUrl={API_URL} />; 
       default:
-        return <AdminDashboard useMockData={useMockData} />;
+        return <div>Unknown Role</div>;
     }
   };
 
@@ -62,12 +78,23 @@ function App() {
       <Navbar 
         user={user} 
         onLogout={handleLogout}
-        onNavigate={setView}
+        onNavigate={setView} // Allows Navbar to switch views
       />
       
-      {view === 'auth' && <Auth onLogin={handleLogin} useMockData={useMockData} />}
-      {view === 'home' && <Home user={user} useMockData={useMockData} />}
-      {view === 'dashboard' && renderDashboard()}
+      <div className="container mt-4">
+        {/* Pass apiUrl and handleLogin to Auth */}
+        {view === 'auth' && (
+            <Auth onLogin={handleLogin} apiUrl={API_URL} />
+        )}
+
+        {/* Pass apiUrl to Home for search */}
+        {view === 'home' && (
+            <Home user={user} apiUrl={API_URL} />
+        )}
+
+        {/* Dashboards are rendered here */}
+        {view === 'dashboard' && renderDashboard()}
+      </div>
     </div>
   );
 }

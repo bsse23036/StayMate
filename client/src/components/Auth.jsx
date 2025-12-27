@@ -1,7 +1,8 @@
 // src/components/Auth.jsx
 import { useState } from 'react';
 
-export default function Auth({ onLogin, useMockData }) {
+// 1. We now accept 'apiUrl' to connect to AWS
+export default function Auth({ onLogin, apiUrl }) {
   const [isLogin, setIsLogin] = useState(true);
   const [formData, setFormData] = useState({
     name: '',
@@ -25,36 +26,37 @@ export default function Auth({ onLogin, useMockData }) {
     setLoading(true);
 
     try {
-      if (useMockData) {
-        // Mock authentication - works without backend
-        setTimeout(() => {
-          onLogin(formData);
-          setLoading(false);
-        }, 500);
-      } else {
-        // Real API call
-        const endpoint = isLogin ? '/api/auth/login' : '/api/auth/signup';
-        const payload = isLogin 
-          ? { email: formData.email, password: formData.password }
-          : formData;
+      // 2. Define the correct endpoints (matching your index.js)
+      const endpoint = isLogin ? '/login' : '/register';
 
-        const response = await fetch(`http://localhost:3000${endpoint}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
+      // 3. IMPORTANT: Use the AWS 'apiUrl' prop, NOT localhost
+      const fullUrl = `${apiUrl}${endpoint}`;
 
-        const data = await response.json();
+      console.log("Connecting to:", fullUrl); // Debugging log
 
-        if (!response.ok) {
-          throw new Error(data.message || 'Authentication failed');
-        }
+      const payload = isLogin
+        ? { email: formData.email, password: formData.password }
+        : formData;
 
-        onLogin(data.user);
-        setLoading(false);
+      const response = await fetch(fullUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Authentication failed');
       }
+
+      // Success! Pass user data up to App.jsx
+      onLogin(data.user);
+
     } catch (err) {
-      setError(err.message);
+      console.error("Login Error:", err);
+      setError(err.message || "Failed to connect to server");
+    } finally {
       setLoading(false);
     }
   };
@@ -66,7 +68,7 @@ export default function Auth({ onLogin, useMockData }) {
           <div className="card shadow-lg border-0">
             <div className="card-body p-5">
               <h3 className="card-title text-center mb-4" style={{ color: '#1a3a5c' }}>
-                {isLogin ? '🔐 Login' : '📝 Sign Up'}
+                {isLogin ? '👋 Login' : '📝 Sign Up'}
               </h3>
 
               {error && (
@@ -127,20 +129,20 @@ export default function Auth({ onLogin, useMockData }) {
                       onChange={handleChange}
                       required
                     >
-                      <option value="guest">🧑 Guest (Book Hostels & Mess)</option>
+                      <option value="guest">👱 Guest (Book Hostels & Mess)</option>
                       <option value="hostel_owner">🏨 Hostel Owner (Manage Hostels)</option>
                       <option value="mess_owner">🍽️ Mess Owner (Manage Mess Services)</option>
                     </select>
                   </div>
                 )}
 
-                <button 
-                  type="submit" 
+                <button
+                  type="submit"
                   className="btn btn-lg w-100 text-white fw-bold"
                   disabled={loading}
                   style={{ backgroundColor: '#ff8c42', border: 'none' }}
                 >
-                  {loading ? 'Please wait...' : (isLogin ? 'Login Now' : 'Create Account')}
+                  {loading ? 'Connecting...' : (isLogin ? 'Login Now' : 'Create Account')}
                 </button>
               </form>
 
@@ -153,8 +155,8 @@ export default function Auth({ onLogin, useMockData }) {
                   }}
                   style={{ color: '#1a3a5c' }}
                 >
-                  {isLogin 
-                    ? "Don't have an account? Sign Up" 
+                  {isLogin
+                    ? "Don't have an account? Sign Up"
                     : 'Already have an account? Login'}
                 </button>
               </div>

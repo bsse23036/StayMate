@@ -1,15 +1,18 @@
 // src/components/Auth.jsx
 import { useState } from 'react';
 
-// 1. We now accept 'apiUrl' to connect to AWS
 export default function Auth({ onLogin, apiUrl }) {
   const [isLogin, setIsLogin] = useState(true);
+  
+  // 1. FIXED: Set default role to 'student' (guest no longer exists in DB)
+  // 2. FIXED: Use 'full_name' instead of 'name' to match backend schema
   const [formData, setFormData] = useState({
-    name: '',
+    full_name: '',
     email: '',
     password: '',
-    role: 'guest'
+    role: 'student' 
   });
+  
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -26,17 +29,15 @@ export default function Auth({ onLogin, apiUrl }) {
     setLoading(true);
 
     try {
-      // 2. Define the correct endpoints (matching your index.js)
       const endpoint = isLogin ? '/login' : '/register';
-
-      // 3. IMPORTANT: Use the AWS 'apiUrl' prop, NOT localhost
       const fullUrl = `${apiUrl}${endpoint}`;
+      
+      console.log("Connecting to:", fullUrl);
 
-      console.log("Connecting to:", fullUrl); // Debugging log
-
-      const payload = isLogin
+      // 3. Prepare payload: send 'full_name' on register
+      const payload = isLogin 
         ? { email: formData.email, password: formData.password }
-        : formData;
+        : formData; // This includes full_name, role, etc.
 
       const response = await fetch(fullUrl, {
         method: 'POST',
@@ -50,7 +51,6 @@ export default function Auth({ onLogin, apiUrl }) {
         throw new Error(data.message || 'Authentication failed');
       }
 
-      // Success! Pass user data up to App.jsx
       onLogin(data.user);
 
     } catch (err) {
@@ -84,8 +84,9 @@ export default function Auth({ onLogin, apiUrl }) {
                     <input
                       type="text"
                       className="form-control form-control-lg"
-                      name="name"
-                      value={formData.name}
+                      // 4. FIXED: Input name matches state property 'full_name'
+                      name="full_name"
+                      value={formData.full_name}
                       onChange={handleChange}
                       required={!isLogin}
                       placeholder="Enter your full name"
@@ -129,15 +130,16 @@ export default function Auth({ onLogin, apiUrl }) {
                       onChange={handleChange}
                       required
                     >
-                      <option value="guest">👱 Guest (Book Hostels & Mess)</option>
+                      {/* 5. FIXED: Removed 'guest' and added 'student' */}
+                      <option value="student">🎓 Student (Book Hostels & Mess)</option>
                       <option value="hostel_owner">🏨 Hostel Owner (Manage Hostels)</option>
                       <option value="mess_owner">🍽️ Mess Owner (Manage Mess Services)</option>
                     </select>
                   </div>
                 )}
 
-                <button
-                  type="submit"
+                <button 
+                  type="submit" 
                   className="btn btn-lg w-100 text-white fw-bold"
                   disabled={loading}
                   style={{ backgroundColor: '#ff8c42', border: 'none' }}
@@ -148,6 +150,7 @@ export default function Auth({ onLogin, apiUrl }) {
 
               <div className="text-center mt-4">
                 <button
+                  type="button" // Add type="button" to prevent form submission
                   className="btn btn-link text-decoration-none"
                   onClick={() => {
                     setIsLogin(!isLogin);
@@ -155,8 +158,8 @@ export default function Auth({ onLogin, apiUrl }) {
                   }}
                   style={{ color: '#1a3a5c' }}
                 >
-                  {isLogin
-                    ? "Don't have an account? Sign Up"
+                  {isLogin 
+                    ? "Don't have an account? Sign Up" 
                     : 'Already have an account? Login'}
                 </button>
               </div>

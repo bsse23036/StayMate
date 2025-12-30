@@ -2,35 +2,44 @@
 import { useState, useEffect } from 'react';
 import MessCard from './MessCard';
 
-export default function MessOwnerDashboard({ user, useMockData }) {
+export default function MessOwnerDashboard({ user, apiUrl }) {
   const [messes, setMesses] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingMess, setEditingMess] = useState(null);
+  const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
-    price: '',
-    location: '',
+    city: '',
+    monthly_price: '',
+    delivery_radius_km: '',
     menu_description: '',
     image_url: ''
   });
 
   const fetchMesses = async () => {
-    if (useMockData) {
-      const stored = localStorage.getItem(`messes_${user.id}`);
-      setMesses(stored ? JSON.parse(stored) : []);
-    } else {
-      try {
-        const response = await fetch(`http://localhost:3000/api/messes/owner/${user.id}`);
-        setMesses(await response.json());
-      } catch (error) {
-        console.error('Error fetching messes:', error);
+    try {
+      setLoading(true);
+      const response = await fetch(`${apiUrl}/messes/owner/${user.user_id || user.id}`);
+      const data = await response.json();
+      
+      if (response.ok) {
+        setMesses(Array.isArray(data) ? data : data.messes || []);
+      } else {
+        console.error('Failed to fetch messes:', data);
       }
+    } catch (error) {
+      console.error('Error fetching messes:', error);
+      alert('Failed to load your mess services');
+    } finally {
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchMesses();
-  }, [useMockData]);
+    if (apiUrl && user) {
+      fetchMesses();
+    }
+  }, [apiUrl, user]);
 
   const handleChange = (e) => {
     setFormData({
@@ -39,54 +48,46 @@ export default function MessOwnerDashboard({ user, useMockData }) {
     });
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    
-    if (useMockData) {
-      const timestamp = new Date().getTime();
-      const newMess = {
-        id: editingMess?.id || timestamp,
+  const handleSubmit = async () => {
+    if (!formData.name || !formData.city || !formData.monthly_price) {
+      alert('Please fill all required fields');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      
+      const payload = {
         ...formData,
-        price: parseInt(formData.price),
-        owner_id: user.id,
-        created_at: new Date().toISOString()
+        owner_id: user.user_id || user.id,
+        monthly_price: parseFloat(formData.monthly_price),
+        delivery_radius_km: formData.delivery_radius_km ? parseFloat(formData.delivery_radius_km) : null
       };
 
-      let updatedMesses;
-      if (editingMess) {
-        updatedMesses = messes.map(m => m.id === editingMess.id ? newMess : m);
+      const url = editingMess 
+        ? `${apiUrl}/messes/${editingMess.mess_id}`
+        : `${apiUrl}/messes`;
+      
+      const response = await fetch(url, {
+        method: editingMess ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        alert(editingMess ? 'Mess updated!' : 'Mess added!');
+        fetchMesses();
+        resetForm();
       } else {
-        updatedMesses = [...messes, newMess];
+        alert('Error: ' + (data.message || 'Operation failed'));
       }
-
-      localStorage.setItem(`messes_${user.id}`, JSON.stringify(updatedMesses));
-      setMesses(updatedMesses);
-      resetForm();
-      alert(editingMess ? 'Mess updated!' : 'Mess added!');
-    } else {
-      try {
-        const url = editingMess 
-          ? `http://localhost:3000/api/messes/${editingMess.id}`
-          : 'http://localhost:3000/api/messes';
-        
-        const response = await fetch(url, {
-          method: editingMess ? 'PUT' : 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ...formData,
-            owner_id: user.id,
-            price: parseInt(formData.price)
-          })
-        });
-
-        if (response.ok) {
-          fetchMesses();
-          resetForm();
-          alert(editingMess ? 'Mess updated!' : 'Mess added!');
-        }
-      } catch (error) {
-        alert('Error: ' + error.message);
-      }
+    } catch (error) {
+      console.error('Error:', error);
+      alert('Error: ' + error.message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -94,8 +95,9 @@ export default function MessOwnerDashboard({ user, useMockData }) {
     setEditingMess(mess);
     setFormData({
       name: mess.name,
-      price: mess.price,
-      location: mess.location,
+      city: mess.city,
+      monthly_price: mess.monthly_price,
+      delivery_radius_km: mess.delivery_radius_km || '',
       menu_description: mess.menu_description || '',
       image_url: mess.image_url || ''
     });
@@ -105,31 +107,34 @@ export default function MessOwnerDashboard({ user, useMockData }) {
   const handleDelete = async (id) => {
     if (!confirm('Delete this mess service?')) return;
 
-    if (useMockData) {
-      const updatedMesses = messes.filter(m => m.id !== id);
-      localStorage.setItem(`messes_${user.id}`, JSON.stringify(updatedMesses));
-      setMesses(updatedMesses);
-      alert('Mess deleted!');
-    } else {
-      try {
-        const response = await fetch(`http://localhost:3000/api/messes/${id}`, {
-          method: 'DELETE'
-        });
-        if (response.ok) {
-          fetchMesses();
-          alert('Mess deleted!');
-        }
-      } catch (error) {
-        alert('Error: ' + error.message);
+    try {
+      setLoading(true);
+      const response = await fetch(`${apiUrl}/messes/${id}`, {
+        method: 'DELETE'
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok && data.success) {
+        alert('Mess deleted!');
+        fetchMesses();
+      } else {
+        alert('Error: ' + (data.message || 'Delete failed'));
       }
+    } catch (error) {
+      console.error('Error:', error);
+      alert('Error: ' + error.message);
+    } finally {
+      setLoading(false);
     }
   };
 
   const resetForm = () => {
     setFormData({
       name: '',
-      price: '',
-      location: '',
+      city: '',
+      monthly_price: '',
+      delivery_radius_km: '',
       menu_description: '',
       image_url: ''
     });
@@ -144,6 +149,7 @@ export default function MessOwnerDashboard({ user, useMockData }) {
         <button 
           className="btn btn-lg btn-success fw-bold"
           onClick={() => setShowForm(!showForm)}
+          disabled={loading}
         >
           {showForm ? '✖️ Cancel' : '➕ Add Mess'}
         </button>
@@ -155,82 +161,100 @@ export default function MessOwnerDashboard({ user, useMockData }) {
             <h5 className="card-title mb-4 fw-bold" style={{ color: '#1a3a5c' }}>
               {editingMess ? '✏️ Edit Mess Service' : '➕ Add New Mess Service'}
             </h5>
-            <form onSubmit={handleSubmit}>
-              <div className="row g-3">
-                <div className="col-md-6">
-                  <label className="form-label fw-bold">Mess Name</label>
-                  <input
-                    type="text"
-                    className="form-control form-control-lg"
-                    name="name"
-                    value={formData.name}
-                    onChange={handleChange}
-                    required
-                  />
-                </div>
-                <div className="col-md-6">
-                  <label className="form-label fw-bold">Price (Rs/month)</label>
-                  <input
-                    type="number"
-                    className="form-control form-control-lg"
-                    name="price"
-                    value={formData.price}
-                    onChange={handleChange}
-                    required
-                  />
-                </div>
-                <div className="col-12">
-                  <label className="form-label fw-bold">Location</label>
-                  <input
-                    type="text"
-                    className="form-control form-control-lg"
-                    name="location"
-                    value={formData.location}
-                    onChange={handleChange}
-                    required
-                  />
-                </div>
-                <div className="col-12">
-                  <label className="form-label fw-bold">Menu Description</label>
-                  <textarea
-                    className="form-control"
-                    name="menu_description"
-                    rows="3"
-                    value={formData.menu_description}
-                    onChange={handleChange}
-                    placeholder="E.g., Mon: Biryani, Tue: Daal Chawal, Wed: Chicken Karahi..."
-                  />
-                </div>
-                <div className="col-12">
-                  <label className="form-label fw-bold">Image URL</label>
-                  <input
-                    type="url"
-                    className="form-control form-control-lg"
-                    name="image_url"
-                    value={formData.image_url}
-                    onChange={handleChange}
-                    placeholder="https://example.com/image.jpg"
-                  />
-                </div>
+            <div className="row g-3">
+              <div className="col-md-6">
+                <label className="form-label fw-bold">Mess Name *</label>
+                <input
+                  type="text"
+                  className="form-control form-control-lg"
+                  name="name"
+                  value={formData.name}
+                  onChange={handleChange}
+                />
               </div>
-              <div className="mt-4">
-                <button type="submit" className="btn btn-lg btn-success fw-bold me-2">
-                  {editingMess ? '💾 Update' : '➕ Add'} Mess
-                </button>
-                <button 
-                  type="button" 
-                  className="btn btn-lg btn-secondary"
-                  onClick={resetForm}
-                >
-                  Cancel
-                </button>
+              <div className="col-md-6">
+                <label className="form-label fw-bold">City *</label>
+                <input
+                  type="text"
+                  className="form-control form-control-lg"
+                  name="city"
+                  value={formData.city}
+                  onChange={handleChange}
+                  placeholder="e.g., Lahore"
+                />
               </div>
-            </form>
+              <div className="col-md-6">
+                <label className="form-label fw-bold">Monthly Price (Rs) *</label>
+                <input
+                  type="number"
+                  className="form-control form-control-lg"
+                  name="monthly_price"
+                  value={formData.monthly_price}
+                  onChange={handleChange}
+                />
+              </div>
+              <div className="col-md-6">
+                <label className="form-label fw-bold">Delivery Radius (km)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  className="form-control form-control-lg"
+                  name="delivery_radius_km"
+                  value={formData.delivery_radius_km}
+                  onChange={handleChange}
+                  placeholder="e.g., 2.5"
+                />
+              </div>
+              <div className="col-12">
+                <label className="form-label fw-bold">Menu Description</label>
+                <textarea
+                  className="form-control"
+                  name="menu_description"
+                  rows="3"
+                  value={formData.menu_description}
+                  onChange={handleChange}
+                  placeholder="E.g., Mon: Biryani, Tue: Daal Chawal, Wed: Chicken Karahi..."
+                />
+              </div>
+              <div className="col-12">
+                <label className="form-label fw-bold">Image URL</label>
+                <input
+                  type="url"
+                  className="form-control form-control-lg"
+                  name="image_url"
+                  value={formData.image_url}
+                  onChange={handleChange}
+                  placeholder="https://example.com/image.jpg"
+                />
+              </div>
+            </div>
+            <div className="mt-4">
+              <button 
+                onClick={handleSubmit}
+                className="btn btn-lg btn-success fw-bold me-2"
+                disabled={loading}
+              >
+                {loading ? '⏳ Processing...' : (editingMess ? '💾 Update' : '➕ Add') + ' Mess'}
+              </button>
+              <button 
+                onClick={resetForm}
+                className="btn btn-lg btn-secondary"
+                disabled={loading}
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {messes.length === 0 ? (
+      {loading && !showForm ? (
+        <div className="text-center py-5">
+          <div className="spinner-border text-primary" role="status">
+            <span className="visually-hidden">Loading...</span>
+          </div>
+        </div>
+      ) : messes.length === 0 ? (
         <div className="alert alert-info alert-lg">
           You haven't added any mess services yet. Click "Add Mess" to get started!
         </div>
@@ -238,10 +262,10 @@ export default function MessOwnerDashboard({ user, useMockData }) {
         <div className="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
           {messes.map(mess => (
             <MessCard
-              key={mess.id}
+              key={mess.mess_id}
               mess={mess}
               onEdit={() => handleEdit(mess)}
-              onDelete={() => handleDelete(mess.id)}
+              onDelete={() => handleDelete(mess.mess_id)}
               showActions={true}
             />
           ))}

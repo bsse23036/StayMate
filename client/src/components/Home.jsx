@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import HostelCard from './HostelCard';
 import MessCard from './MessCard';
 
-// ⚠️ We accept 'apiUrl' here to talk to AWS
 export default function Home({ user, apiUrl }) {
   const [hostels, setHostels] = useState([]);
   const [messes, setMesses] = useState([]);
@@ -11,7 +10,6 @@ export default function Home({ user, apiUrl }) {
   const [priceRange, setPriceRange] = useState({ min: '', max: '' });
   const [loading, setLoading] = useState(true);
 
-  // Load data as soon as the page opens
   useEffect(() => {
     if (apiUrl) {
       fetchListings();
@@ -20,63 +18,67 @@ export default function Home({ user, apiUrl }) {
 
   const fetchListings = async () => {
     try {
-      console.log("Fetching from AWS:", apiUrl); // Debug log
+      console.log("Fetching from AWS:", apiUrl);
 
-      // Fetch both Hostels and Messes in parallel
       const [hostelsRes, messesRes] = await Promise.all([
         fetch(`${apiUrl}/hostels`),
         fetch(`${apiUrl}/messes`)
       ]);
 
+      if (!hostelsRes.ok || !messesRes.ok) {
+        throw new Error('Failed to fetch listings');
+      }
+
       const hostelsData = await hostelsRes.json();
       const messesData = await messesRes.json();
 
-      setHostels(hostelsData);
-      setMesses(messesData);
+      setHostels(Array.isArray(hostelsData) ? hostelsData : hostelsData.hostels || []);
+      setMesses(Array.isArray(messesData) ? messesData : messesData.messes || []);
     } catch (error) {
       console.error('Error fetching listings:', error);
-      alert("Failed to load data. Check your API Gateway URL.");
+      alert("Failed to load data from AWS. Check console for details.");
     } finally {
       setLoading(false);
     }
   };
 
-  // --- FILTERS (Keep your existing logic) ---
   const filteredHostels = hostels.filter(h => {
-    const matchLocation = h.location.toLowerCase().includes(searchLocation.toLowerCase());
-    const matchPrice = (!priceRange.min || h.price >= parseInt(priceRange.min)) &&
-      (!priceRange.max || h.price <= parseInt(priceRange.max));
+    const matchLocation = h.city?.toLowerCase().includes(searchLocation.toLowerCase()) || 
+                         h.location?.toLowerCase().includes(searchLocation.toLowerCase());
+    const matchPrice = (!priceRange.min || h.price_per_month >= parseInt(priceRange.min)) &&
+      (!priceRange.max || h.price_per_month <= parseInt(priceRange.max));
     return matchLocation && matchPrice;
   });
 
   const filteredMesses = messes.filter(m => {
-    const matchLocation = m.location.toLowerCase().includes(searchLocation.toLowerCase());
-    const matchPrice = (!priceRange.min || m.price >= parseInt(priceRange.min)) &&
-      (!priceRange.max || m.price <= parseInt(priceRange.max));
+    const matchLocation = m.city?.toLowerCase().includes(searchLocation.toLowerCase()) ||
+                         m.location?.toLowerCase().includes(searchLocation.toLowerCase());
+    const matchPrice = (!priceRange.min || m.monthly_price >= parseInt(priceRange.min)) &&
+      (!priceRange.max || m.monthly_price <= parseInt(priceRange.max));
     return matchLocation && matchPrice;
   });
 
-  // --- REAL BOOKING LOGIC ---
   const handleBooking = async (type, id) => {
     if (!user) {
       alert('Please login to book');
       return;
     }
-    if (user.role !== 'guest') {
-      alert('Only guests can book accommodations');
+    // CHANGED: Check for 'student' role instead of 'guest'
+    if (user.role !== 'student') {
+      alert('Only students can book accommodations');
       return;
     }
 
     try {
-      // Send the booking to AWS Database
       const res = await fetch(`${apiUrl}/book`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          guest_id: user.id,
-          guest_name: user.name,
-          hostel_id: type === 'hostel' ? id : null, // Handle mess vs hostel logic if needed
-          mess_id: type === 'mess' ? id : null
+          student_id: user.user_id || user.id,
+          student_name: user.full_name || user.name,
+          hostel_id: type === 'hostel' ? id : null,
+          mess_id: type === 'mess' ? id : null,
+          start_date: new Date().toISOString().split('T')[0]
         })
       });
 
@@ -111,7 +113,6 @@ export default function Home({ user, apiUrl }) {
         <h1 className="display-3 fw-bold" style={{ color: '#1a3a5c' }}>Find Your Thikana</h1>
         <p className="lead" style={{ color: '#6c757d' }}>Search for Hostels & Mess services in your city</p>
 
-        {/* SEARCH BAR */}
         <div className="row justify-content-center mt-4">
           <div className="col-lg-8">
             <div className="input-group input-group-lg shadow">
@@ -133,7 +134,6 @@ export default function Home({ user, apiUrl }) {
           </div>
         </div>
 
-        {/* FILTERS */}
         {showFilters && (
           <div className="row justify-content-center mt-3">
             <div className="col-lg-8">
@@ -157,7 +157,6 @@ export default function Home({ user, apiUrl }) {
         )}
       </div>
 
-      {/* HOSTELS SECTION */}
       <section className="mb-5">
         <div className="d-flex align-items-center mb-4">
           <h2 className="h3 fw-bold mb-0" style={{ color: '#1a3a5c' }}>🏨 Available Hostels</h2>
@@ -169,17 +168,16 @@ export default function Home({ user, apiUrl }) {
           <div className="row row-cols-1 row-cols-md-2 row-cols-lg-4 g-4">
             {filteredHostels.map(hostel => (
               <HostelCard
-                key={hostel.id}
+                key={hostel.hostel_id || hostel.id}
                 hostel={hostel}
-                onBook={() => handleBooking('hostel', hostel.id)}
-                showBookButton={user?.role === 'guest'}
+                onBook={() => handleBooking('hostel', hostel.hostel_id || hostel.id)}
+                showBookButton={user?.role === 'student'}
               />
             ))}
           </div>
         )}
       </section>
 
-      {/* MESSES SECTION */}
       <section>
         <div className="d-flex align-items-center mb-4">
           <h2 className="h3 fw-bold mb-0" style={{ color: '#1a3a5c' }}>🍽️ Available Mess Services</h2>
@@ -191,10 +189,10 @@ export default function Home({ user, apiUrl }) {
           <div className="row row-cols-1 row-cols-md-2 row-cols-lg-4 g-4">
             {filteredMesses.map(mess => (
               <MessCard
-                key={mess.id}
+                key={mess.mess_id || mess.id}
                 mess={mess}
-                showBookButton={user?.role === 'guest'}
-                onBook={() => handleBooking('mess', mess.id)}
+                showBookButton={user?.role === 'student'}
+                onBook={() => handleBooking('mess', mess.mess_id || mess.id)}
               />
             ))}
           </div>

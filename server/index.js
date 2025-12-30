@@ -1,6 +1,7 @@
 const express = require('express');
 const { Pool } = require('pg');
 const cors = require('cors');
+const bcrypt = require('bcrypt'); // Security package
 const serverless = require('serverless-http');
 const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
@@ -33,19 +34,17 @@ const queryDB = async(text, params) => {
     return await pool.query(text, params);
 };
 
-
 // --- 3. HEALTH CHECK ---
 app.get('/', (req, res) => {
-    res.send("✅ StayMate Advanced API is Running!");
+    res.send("✅ StayMate Advanced API is Running! (Secure + Admin Mode)");
 });
 
-
-// --- 4. SETUP DATABASE (NEW ADVANCED SCHEMA) ---
+// --- 4. SETUP DATABASE (ADMIN & HASHING SUPPORT) ---
 app.get('/setup-database', async(req, res) => {
     try {
         console.log("🛠️ Starting Advanced Database Setup...");
 
-        // 1. Cleanup
+        // 1. Cleanup Old Tables
         await queryDB("DROP TABLE IF EXISTS room_bookings CASCADE");
         await queryDB("DROP TABLE IF EXISTS mess_subscriptions CASCADE");
         await queryDB("DROP TABLE IF EXISTS mess_menus CASCADE");
@@ -55,8 +54,8 @@ app.get('/setup-database', async(req, res) => {
         await queryDB("DROP TABLE IF EXISTS users CASCADE");
         await queryDB("DROP TYPE IF EXISTS user_role");
 
-        // 2. Create Type & Users
-        await queryDB("CREATE TYPE user_role AS ENUM ('student', 'hostel_owner', 'mess_owner')");
+        // 2. Create Type & Users (Includes Admin)
+        await queryDB("CREATE TYPE user_role AS ENUM ('student', 'hostel_owner', 'mess_owner', 'admin')");
 
         await queryDB(`
             CREATE TABLE users (
@@ -85,7 +84,7 @@ app.get('/setup-database', async(req, res) => {
             );
         `);
 
-        // 4. Rooms (Price is here now)
+        // 4. Rooms
         await queryDB(`
             CREATE TABLE rooms (
                 room_id SERIAL PRIMARY KEY,
@@ -122,7 +121,7 @@ app.get('/setup-database', async(req, res) => {
             );
         `);
 
-        // 7. Bookings
+        // 7. Room Bookings
         await queryDB(`
             CREATE TABLE room_bookings (
                 booking_id SERIAL PRIMARY KEY,
@@ -134,7 +133,26 @@ app.get('/setup-database', async(req, res) => {
             );
         `);
 
-        res.send("✅ Advanced Database Tables Created Successfully!");
+        // 8. Mess Subscriptions
+        await queryDB(`
+            CREATE TABLE mess_subscriptions (
+                subscription_id SERIAL PRIMARY KEY,
+                student_id INT REFERENCES users(user_id),
+                mess_id INT REFERENCES mess_services(mess_id),
+                start_date DATE NOT NULL,
+                is_active BOOLEAN DEFAULT TRUE
+            );
+        `);
+
+        // 9. Create Default Admin User
+        const adminPasswordHash = await bcrypt.hash('admin123', 10);
+        await queryDB(`
+            INSERT INTO users (full_name, email, password_hash, phone_number, role)
+            VALUES ('System Admin', 'admin@staymate.com', $1, '+92 300 0000000', 'admin')
+            ON CONFLICT (email) DO NOTHING
+        `, [adminPasswordHash]);
+
+        res.send("✅ Database Tables Created! Admin: admin@staymate.com / admin123");
     } catch (err) {
         console.error("Setup Error:", err);
         res.status(500).send("❌ Error: " + err.message);
@@ -142,181 +160,191 @@ app.get('/setup-database', async(req, res) => {
 });
 
 
-// --- 5. AUTHENTICATION ROUTES (UPDATED FIELDS) ---
+// --- 5. AUTHENTICATION ROUTES (SECURE) ---
 
 app.post('/register', async(req, res) => {
-    // Note: Frontend sends 'role' as string, Postgres casts it to ENUM automatically
-    const { name, email, password, role } = req.body;
+    const { full_name, email, password, phone_number, role } = req.body;
+
     try {
         const checkUser = await queryDB('SELECT * FROM users WHERE email = $1', [email]);
         if (checkUser.rows.length > 0) {
             return res.status(400).json({ success: false, message: 'User already exists' });
         }
 
+        // 🔐 SECURE: Hash the password before saving
+        const password_hash = await bcrypt.hash(password, 10);
+
         const result = await queryDB(
-            'INSERT INTO users (full_name, email, password_hash, role) VALUES ($1, $2, $3, $4) RETURNING user_id, full_name, email, role', [name, email, password, role]
+            `INSERT INTO users (full_name, email, password_hash, phone_number, role) 
+             VALUES ($1, $2, $3, $4, $5) 
+             RETURNING user_id, full_name, email, phone_number, role, created_at`, [full_name, email, password_hash, phone_number, role]
         );
 
-        // Normalize response to match Frontend expectation (id, name, role)
-        const u = result.rows[0];
-        res.json({ success: true, user: { id: u.user_id, name: u.full_name, role: u.role } });
+        const user = result.rows[0];
+        res.json({
+            success: true,
+            user: {
+                id: user.user_id, // Map for frontend compatibility
+                user_id: user.user_id,
+                name: user.full_name, // Map for frontend compatibility
+                full_name: user.full_name,
+                email: user.email,
+                role: user.role
+            },
+            message: 'Registration successful'
+        });
+
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ success: false, message: err.message });
     }
 });
 
 app.post('/login', async(req, res) => {
     const { email, password } = req.body;
-    try {
-        const result = await queryDB('SELECT * FROM users WHERE email = $1 AND password_hash = $2', [email, password]);
 
-        if (result.rows.length > 0) {
-            const user = result.rows[0];
-            res.json({
-                success: true,
-                user: { id: user.user_id, name: user.full_name, role: user.role }
-            });
-        } else {
-            res.status(401).json({ success: false, message: 'Invalid credentials' });
+    try {
+        const result = await queryDB('SELECT * FROM users WHERE email = $1', [email]);
+
+        if (result.rows.length === 0) {
+            return res.status(401).json({ success: false, message: 'Invalid email or password' });
         }
+
+        const user = result.rows[0];
+
+        // 🔐 SECURE: Compare the hashed password
+        const isValidPassword = await bcrypt.compare(password, user.password_hash);
+
+        if (!isValidPassword) {
+            return res.status(401).json({ success: false, message: 'Invalid email or password' });
+        }
+
+        res.json({
+            success: true,
+            user: {
+                id: user.user_id, // Map for frontend compatibility
+                user_id: user.user_id,
+                name: user.full_name, // Map for frontend compatibility
+                full_name: user.full_name,
+                email: user.email,
+                role: user.role
+            },
+            message: 'Login successful'
+        });
+
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ success: false, message: err.message });
     }
 });
 
 
-// --- 6. VIEWING LISTINGS (SMART QUERY) ---
+// --- 6. VIEWING LISTINGS ---
 
 app.get('/hostels', async(req, res) => {
     const { search } = req.query;
     try {
-        // COMPLEX QUERY:
-        // We join Hostels with Rooms to find the "Starting Price" (MIN price)
-        // This lets the frontend still show a price tag even though price is in a different table.
         let queryText = `
-            SELECT h.hostel_id as id, h.name, h.city as location, h.main_image_url as image_url, h.description, 
+            SELECT h.hostel_id as id, h.name, h.city as location, h.address, h.description, 
+                   h.main_image_url as image_url, h.owner_id,
                    COALESCE(MIN(r.price_per_month), 0) as price
             FROM hostels h
             LEFT JOIN rooms r ON h.hostel_id = r.hostel_id
         `;
 
         let params = [];
-
         if (search) {
             queryText += ` WHERE h.city ILIKE $1 OR h.name ILIKE $1 `;
             params.push(`%${search}%`);
         }
 
         queryText += ` GROUP BY h.hostel_id ORDER BY h.hostel_id DESC`;
-
         const result = await queryDB(queryText, params);
         res.json(result.rows);
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ success: false, message: err.message });
     }
 });
 
 app.get('/messes', async(req, res) => {
     try {
-        // Map 'monthly_price' back to 'price' for frontend compatibility
         const result = await queryDB(`
             SELECT mess_id as id, name, city as location, monthly_price as price, 
-                   delivery_radius_km, 'View Menu' as menu_description 
+                   delivery_radius_km, owner_id 
             FROM mess_services ORDER BY mess_id DESC
         `);
         res.json(result.rows);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ success: false, message: err.message });
     }
 });
 
 
-// --- 7. OWNER ACTIONS (UPDATED) ---
+// --- 7. HOSTEL OWNER ENDPOINTS ---
 
-app.post('/add-hostel', async(req, res) => {
-    // Note: We don't take 'price' here anymore. We take it in 'add-room'.
-    const { name, location, image_url, owner_id, description } = req.body;
+app.get('/hostels/owner/:ownerId', async(req, res) => {
     try {
-        const result = await queryDB(
-            'INSERT INTO hostels (name, city, address, main_image_url, owner_id, description) VALUES ($1, $2, $3, $4, $5, $6) RETURNING hostel_id', [name, location, location, image_url, owner_id, description]
-        );
-        res.json({ success: true, message: 'Hostel added! Now add a room.', hostelId: result.rows[0].hostel_id });
+        const result = await queryDB(`
+            SELECT h.*, COALESCE(MIN(r.price_per_month), 0) as price
+            FROM hostels h
+            LEFT JOIN rooms r ON h.hostel_id = r.hostel_id
+            WHERE h.owner_id = $1
+            GROUP BY h.hostel_id ORDER BY h.hostel_id DESC
+        `, [req.params.ownerId]);
+        res.json(result.rows);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ success: false, message: err.message });
     }
 });
 
-// NEW ROUTE: Add Room (Required to have a price)
-app.post('/add-room', async(req, res) => {
-    const { hostel_id, room_type, price, total_beds } = req.body;
+app.post('/hostels', async(req, res) => {
+    const { owner_id, name, city, address, description, main_image_url, price_per_month } = req.body;
     try {
+        const hostelResult = await queryDB(
+            `INSERT INTO hostels (owner_id, name, city, address, description, main_image_url) 
+             VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`, [owner_id, name, city, address, description, main_image_url]
+        );
+        const hostel = hostelResult.rows[0];
+
+        // Create Default Room
         await queryDB(
-            'INSERT INTO rooms (hostel_id, room_type, price_per_month, total_beds, available_beds) VALUES ($1, $2, $3, $4, $4)', [hostel_id, room_type, price, total_beds]
+            `INSERT INTO rooms (hostel_id, room_type, price_per_month, total_beds, available_beds)
+             VALUES ($1, 'Standard', $2, 4, 4)`, [hostel.hostel_id, price_per_month || 0]
         );
-        res.json({ success: true, message: 'Room added successfully!' });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
 
-app.post('/add-mess', async(req, res) => {
-    const { name, price, location, owner_id } = req.body;
-    try {
-        await queryDB(
-            'INSERT INTO mess_services (name, monthly_price, city, owner_id) VALUES ($1, $2, $3, $4)', [name, price, location, owner_id]
-        );
-        res.json({ success: true, message: 'Mess service added!' });
+        res.json({ success: true, message: 'Hostel added!', hostel });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ success: false, message: err.message });
     }
 });
 
 
-// --- 8. IMAGE UPLOADS (Unchanged) ---
-app.post('/get-upload-url', async(req, res) => {
-    const { fileName, fileType } = req.body;
-    const uniqueKey = `uploads/${Date.now()}-${fileName}`;
-    const command = new PutObjectCommand({
-        Bucket: BUCKET_NAME,
-        Key: uniqueKey,
-        ContentType: fileType,
-    });
-
-    try {
-        const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 60 });
-        res.json({
-            uploadUrl: signedUrl,
-            finalImageUrl: `https://${BUCKET_NAME}.s3.amazonaws.com/${uniqueKey}`
-        });
-    } catch (err) {
-        res.status(500).json({ error: 'Failed to generate upload URL' });
-    }
-});
-
-
-// --- 9. BOOKING (UPDATED FOR ROOMS) ---
+// --- 8. BOOKING ENDPOINTS ---
 
 app.post('/book', async(req, res) => {
-    // We now book a specific room, not just a hostel
-    const { guest_id, room_id, guest_name } = req.body;
-
-    // Note: If frontend sends 'hostel_id' instead of 'room_id', this will fail.
-    // For simplicity in this transition, let's assume we book the first available room of that hostel
-    // OR we can update the frontend to pass room_id.
-
-    // Let's implement a "Auto-assign Room" logic for backward compatibility
-    // If we receive hostel_id, find a room. If room_id, use it.
-    let targetRoomId = room_id;
+    // This handles both Hostel and Mess bookings
+    const { student_id, hostel_id, mess_id, start_date, student_name } = req.body;
 
     try {
-        if (!targetRoomId && req.body.hostel_id) {
-            const roomCheck = await queryDB('SELECT room_id FROM rooms WHERE hostel_id = $1 AND available_beds > 0 LIMIT 1', [req.body.hostel_id]);
+        if (hostel_id) {
+            // 1. Find a room
+            const roomCheck = await queryDB('SELECT room_id FROM rooms WHERE hostel_id = $1 AND available_beds > 0 LIMIT 1', [hostel_id]);
             if (roomCheck.rows.length === 0) return res.status(400).json({ success: false, message: 'No rooms available' });
-            targetRoomId = roomCheck.rows[0].room_id;
-        }
 
-        await queryDB('INSERT INTO room_bookings (student_id, room_id, start_date) VALUES ($1, $2, CURRENT_DATE)', [guest_id, targetRoomId]);
+            const room_id = roomCheck.rows[0].room_id;
+
+            // 2. Book Room
+            await queryDB(
+                `INSERT INTO room_bookings (student_id, room_id, start_date, status) VALUES ($1, $2, $3, 'pending')`, [student_id, room_id, start_date || new Date()]
+            );
+
+            // 3. Update Availability
+            await queryDB('UPDATE rooms SET available_beds = available_beds - 1 WHERE room_id = $1', [room_id]);
+
+        } else if (mess_id) {
+            // Book Mess
+            await queryDB(
+                `INSERT INTO mess_subscriptions (student_id, mess_id, start_date, is_active) VALUES ($1, $2, $3, true)`, [student_id, mess_id, start_date || new Date()]
+            );
+        }
 
         // Email Notification
         try {
@@ -324,24 +352,46 @@ app.post('/book', async(req, res) => {
                 Source: SENDER_EMAIL,
                 Destination: { ToAddresses: [SENDER_EMAIL] },
                 Message: {
-                    Subject: { Data: `New Booking Alert - StayMate` },
-                    Body: { Text: { Data: `Student ${guest_name} booked Room ID ${targetRoomId}` } },
-                },
+                    Subject: { Data: `New Booking Alert` },
+                    Body: { Text: { Data: `Student ${student_name} made a new booking.` } }
+                }
             };
             await sesClient.send(new SendEmailCommand(emailParams));
-        } catch (emailErr) {
-            console.warn("Email Warning:", emailErr.message);
-        }
+        } catch (emailErr) { console.warn("Email warning:", emailErr.message); }
 
         res.json({ success: true, message: 'Booking confirmed!' });
+
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ success: false, message: err.message });
     }
 });
 
-// --- 10. SERVER EXPORTS ---
-module.exports.handler = serverless(app);
 
-if (require.main === module) {
-    app.listen(3000, () => console.log('Server running on port 3000'));
-}
+// --- 9. ADMIN ENDPOINTS ---
+
+app.get('/users', async(req, res) => {
+    try {
+        const result = await queryDB('SELECT user_id, full_name, email, role, created_at FROM users ORDER BY created_at DESC');
+        res.json(result.rows);
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+
+// --- 10. IMAGE UPLOADS ---
+app.post('/get-upload-url', async(req, res) => {
+    const { fileName, fileType } = req.body;
+    const uniqueKey = `uploads/${Date.now()}-${fileName}`;
+    const command = new PutObjectCommand({ Bucket: BUCKET_NAME, Key: uniqueKey, ContentType: fileType });
+
+    try {
+        const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 60 });
+        res.json({ uploadUrl: signedUrl, finalImageUrl: `https://${BUCKET_NAME}.s3.amazonaws.com/${uniqueKey}` });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to generate upload URL' });
+    }
+});
+
+// --- 11. EXPORT ---
+module.exports.handler = serverless(app);

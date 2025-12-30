@@ -5,7 +5,7 @@ import Auth from './components/Auth';
 import Home from './components/Home';
 import HostelOwnerDashboard from './components/HostelOwnerDashboard';
 import MessOwnerDashboard from './components/MessOwnerDashboard';
-import AdminDashboard from './components/AdminDashboard'; // Optional if you have this
+// import AdminDashboard from './components/AdminDashboard'; // Uncomment if you create this file
 
 function App() {
   const [user, setUser] = useState(null);
@@ -22,32 +22,13 @@ function App() {
     }
   }, []);
 
-  // 2. REAL LOGIN FUNCTION (Talks to your AWS Backend)
-  const handleLogin = async (credentials, isSignup = false) => {
-    try {
-        const endpoint = isSignup ? '/register' : '/login';
-        
-        // Send request to your Lambda via API Gateway
-        const res = await fetch(`${API_URL}${endpoint}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(credentials)
-        });
-
-        const data = await res.json();
-
-        if (data.success) {
-            // Save the real user from Postgres
-            setUser(data.user);
-            localStorage.setItem('staymate_user', JSON.stringify(data.user));
-            setView('dashboard');
-        } else {
-            alert("Error: " + data.message);
-        }
-    } catch (err) {
-        console.error("Login Error:", err);
-        alert("Connection failed! Check your API Gateway URL.");
-    }
+  // 2. UPDATED LOGIN FUNCTION (Simplified)
+  // Auth.jsx already did the fetching. We just save the result here.
+  const handleLogin = (userData) => {
+    console.log("Login Successful, saving user:", userData);
+    setUser(userData);
+    localStorage.setItem('staymate_user', JSON.stringify(userData));
+    setView('dashboard');
   };
 
   const handleLogout = () => {
@@ -65,11 +46,15 @@ function App() {
         return <HostelOwnerDashboard user={user} apiUrl={API_URL} />;
       case 'mess_owner':
         return <MessOwnerDashboard user={user} apiUrl={API_URL} />;
-      case 'guest':
-        // Guests usually just see the Home page search, but if you have a dashboard:
+      case 'student': 
+        // Students see the search page as their "dashboard" for now
         return <Home user={user} apiUrl={API_URL} />; 
+      case 'admin':
+        // return <AdminDashboard user={user} apiUrl={API_URL} />;
+        return <div>Admin Dashboard (Coming Soon)</div>;
       default:
-        return <div>Unknown Role</div>;
+        // Fallback for any other role
+        return <Home user={user} apiUrl={API_URL} />;
     }
   };
 
@@ -78,21 +63,21 @@ function App() {
       <Navbar 
         user={user} 
         onLogout={handleLogout}
-        onNavigate={setView} // Allows Navbar to switch views
+        onNavigate={setView} 
       />
       
       <div className="container mt-4">
-        {/* Pass apiUrl and handleLogin to Auth */}
+        {/* LOGIN/SIGNUP PAGE */}
         {view === 'auth' && (
             <Auth onLogin={handleLogin} apiUrl={API_URL} />
         )}
 
-        {/* Pass apiUrl to Home for search */}
+        {/* HOME / SEARCH PAGE */}
         {view === 'home' && (
             <Home user={user} apiUrl={API_URL} />
         )}
 
-        {/* Dashboards are rendered here */}
+        {/* DASHBOARDS (Private) */}
         {view === 'dashboard' && renderDashboard()}
       </div>
     </div>

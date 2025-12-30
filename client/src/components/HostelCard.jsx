@@ -5,9 +5,9 @@ export default function HostelCard({ hostel, onBook, onEdit, onDelete, showBookB
       <div className="card h-100 shadow border-0" style={{ transition: 'transform 0.2s' }} 
            onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
            onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}>
-        {hostel.image_url && (
+        {(hostel.main_image_url || hostel.image_url) && (
           <img 
-            src={hostel.image_url} 
+            src={hostel.main_image_url || hostel.image_url} 
             className="card-img-top" 
             alt={hostel.name}
             style={{ height: '200px', objectFit: 'cover' }}
@@ -17,11 +17,31 @@ export default function HostelCard({ hostel, onBook, onEdit, onDelete, showBookB
           <h5 className="card-title fw-bold" style={{ color: '#1a3a5c' }}>{hostel.name}</h5>
           <p className="card-text">
             <span className="badge" style={{ backgroundColor: '#ff8c42' }}>
-              📍 {hostel.location}
+              📍 {hostel.city || hostel.location || 'Location N/A'}
             </span>
           </p>
-          <p className="card-text text-muted small">{hostel.description}</p>
-          <p className="h5 fw-bold" style={{ color: '#ff8c42' }}>Rs. {hostel.price}/month</p>
+          {hostel.address && (
+            <p className="card-text text-muted small">
+              <strong>Address:</strong> {hostel.address}
+            </p>
+          )}
+          {hostel.description && (
+            <p className="card-text text-muted small">{hostel.description}</p>
+          )}
+          
+          {/* Facilities */}
+          <div className="mb-2">
+            {hostel.wifi_available && (
+              <span className="badge bg-info me-1">📶 WiFi</span>
+            )}
+            {hostel.generator_available && (
+              <span className="badge bg-success">⚡ Generator</span>
+            )}
+          </div>
+          
+          <p className="h5 fw-bold" style={{ color: '#ff8c42' }}>
+            Rs. {hostel.price_per_month || hostel.price}/month
+          </p>
         </div>
         <div className="card-footer bg-white border-top-0">
           {showBookButton && (

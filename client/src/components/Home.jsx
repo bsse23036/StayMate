@@ -1,3 +1,4 @@
+// src/components/Home.jsx
 import { useState, useEffect } from 'react';
 import HostelCard from './HostelCard';
 import MessCard from './MessCard';
@@ -25,18 +26,16 @@ export default function Home({ user, apiUrl }) {
         fetch(`${apiUrl}/messes`)
       ]);
 
-      if (!hostelsRes.ok || !messesRes.ok) {
-        throw new Error('Failed to fetch listings');
-      }
-
       const hostelsData = await hostelsRes.json();
       const messesData = await messesRes.json();
 
-      setHostels(Array.isArray(hostelsData) ? hostelsData : hostelsData.hostels || []);
-      setMesses(Array.isArray(messesData) ? messesData : messesData.messes || []);
+      if (hostelsData.success && messesData.success) {
+        setHostels(hostelsData.hostels || []);
+        setMesses(messesData.messes || []);
+      }
     } catch (error) {
       console.error('Error fetching listings:', error);
-      alert("Failed to load data from AWS. Check console for details.");
+      alert("Failed to load data. Please check console for details.");
     } finally {
       setLoading(false);
     }
@@ -63,7 +62,6 @@ export default function Home({ user, apiUrl }) {
       alert('Please login to book');
       return;
     }
-    // CHANGED: Check for 'student' role instead of 'guest'
     if (user.role !== 'student') {
       alert('Only students can book accommodations');
       return;
@@ -75,7 +73,6 @@ export default function Home({ user, apiUrl }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           student_id: user.user_id || user.id,
-          student_name: user.full_name || user.name,
           hostel_id: type === 'hostel' ? id : null,
           mess_id: type === 'mess' ? id : null,
           start_date: new Date().toISOString().split('T')[0]
@@ -85,7 +82,7 @@ export default function Home({ user, apiUrl }) {
       const data = await res.json();
 
       if (data.success) {
-        alert(`✅ Booking Successful! Check your email.`);
+        alert(`✅ Booking Successful!`);
       } else {
         alert(`❌ Booking Failed: ${data.message}`);
       }
@@ -102,30 +99,36 @@ export default function Home({ user, apiUrl }) {
         <div className="spinner-border text-primary" role="status" style={{ width: '3rem', height: '3rem' }}>
           <span className="visually-hidden">Loading...</span>
         </div>
-        <p className="mt-2">Connecting to AWS...</p>
+        <p className="mt-3 text-muted">Loading accommodations...</p>
       </div>
     );
   }
 
   return (
     <div className="container-fluid px-4 py-4">
-      <div className="text-center mb-5">
-        <h1 className="display-3 fw-bold" style={{ color: '#1a3a5c' }}>Find Your Thikana</h1>
-        <p className="lead" style={{ color: '#6c757d' }}>Search for Hostels & Mess services in your city</p>
+      {/* Hero Section */}
+      <div className="text-center mb-5 py-4" style={{ 
+        background: 'linear-gradient(135deg, #1a3a5c 0%, #2c5f8d 100%)',
+        borderRadius: '20px',
+        color: 'white'
+      }}>
+        <h1 className="display-4 fw-bold mb-3">Find Your Perfect Stay</h1>
+        <p className="lead mb-4">Search for Hostels & Mess services in your city</p>
 
-        <div className="row justify-content-center mt-4">
+        <div className="row justify-content-center">
           <div className="col-lg-8">
-            <div className="input-group input-group-lg shadow">
+            <div className="input-group input-group-lg shadow-lg" style={{ borderRadius: '50px', overflow: 'hidden' }}>
               <input
                 type="text"
-                className="form-control"
+                className="form-control border-0"
                 placeholder="🔍 Search by location (e.g., Lahore, Karachi)"
                 value={searchLocation}
                 onChange={(e) => setSearchLocation(e.target.value)}
+                style={{ borderRadius: '50px 0 0 50px', padding: '15px 25px' }}
               />
               <button
-                className="btn text-white"
-                style={{ backgroundColor: '#ff8c42' }}
+                className="btn"
+                style={{ backgroundColor: '#ff8c42', color: 'white', border: 'none', borderRadius: '0 50px 50px 0', padding: '15px 30px' }}
                 onClick={() => setShowFilters(!showFilters)}
               >
                 🎛️ Filters
@@ -135,19 +138,31 @@ export default function Home({ user, apiUrl }) {
         </div>
 
         {showFilters && (
-          <div className="row justify-content-center mt-3">
+          <div className="row justify-content-center mt-4">
             <div className="col-lg-8">
-              <div className="card border-0 shadow-sm">
-                <div className="card-body">
+              <div className="card border-0 shadow-lg" style={{ borderRadius: '20px' }}>
+                <div className="card-body p-4">
                   <h6 className="fw-bold mb-3" style={{ color: '#1a3a5c' }}>💰 Price Range (Rs/month)</h6>
                   <div className="row g-3">
                     <div className="col-md-6">
-                      <input type="number" className="form-control" placeholder="Min Price"
-                        value={priceRange.min} onChange={(e) => setPriceRange({ ...priceRange, min: e.target.value })} />
+                      <input 
+                        type="number" 
+                        className="form-control form-control-lg" 
+                        placeholder="Min Price"
+                        value={priceRange.min} 
+                        onChange={(e) => setPriceRange({ ...priceRange, min: e.target.value })}
+                        style={{ borderRadius: '10px' }}
+                      />
                     </div>
                     <div className="col-md-6">
-                      <input type="number" className="form-control" placeholder="Max Price"
-                        value={priceRange.max} onChange={(e) => setPriceRange({ ...priceRange, max: e.target.value })} />
+                      <input 
+                        type="number" 
+                        className="form-control form-control-lg" 
+                        placeholder="Max Price"
+                        value={priceRange.max} 
+                        onChange={(e) => setPriceRange({ ...priceRange, max: e.target.value })}
+                        style={{ borderRadius: '10px' }}
+                      />
                     </div>
                   </div>
                 </div>
@@ -157,13 +172,40 @@ export default function Home({ user, apiUrl }) {
         )}
       </div>
 
+      {/* Statistics */}
+      <div className="row g-4 mb-5">
+        <div className="col-md-4">
+          <div className="card border-0 shadow-sm text-center p-4" style={{ borderRadius: '15px', borderLeft: '5px solid #ff8c42' }}>
+            <h2 className="fw-bold" style={{ color: '#ff8c42' }}>{hostels.length}</h2>
+            <p className="text-muted mb-0">🏨 Available Hostels</p>
+          </div>
+        </div>
+        <div className="col-md-4">
+          <div className="card border-0 shadow-sm text-center p-4" style={{ borderRadius: '15px', borderLeft: '5px solid #28a745' }}>
+            <h2 className="fw-bold" style={{ color: '#28a745' }}>{messes.length}</h2>
+            <p className="text-muted mb-0">🍽️ Mess Services</p>
+          </div>
+        </div>
+        <div className="col-md-4">
+          <div className="card border-0 shadow-sm text-center p-4" style={{ borderRadius: '15px', borderLeft: '5px solid #1a3a5c' }}>
+            <h2 className="fw-bold" style={{ color: '#1a3a5c' }}>{filteredHostels.length + filteredMesses.length}</h2>
+            <p className="text-muted mb-0">✨ Total Options</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Hostels Section */}
       <section className="mb-5">
         <div className="d-flex align-items-center mb-4">
           <h2 className="h3 fw-bold mb-0" style={{ color: '#1a3a5c' }}>🏨 Available Hostels</h2>
-          <span className="badge ms-3" style={{ backgroundColor: '#ff8c42' }}>{filteredHostels.length}</span>
+          <span className="badge ms-3" style={{ backgroundColor: '#ff8c42', padding: '10px 20px', borderRadius: '20px' }}>
+            {filteredHostels.length}
+          </span>
         </div>
         {filteredHostels.length === 0 ? (
-          <div className="alert alert-info">No hostels found.</div>
+          <div className="alert alert-info" style={{ borderRadius: '15px' }}>
+            No hostels found matching your criteria.
+          </div>
         ) : (
           <div className="row row-cols-1 row-cols-md-2 row-cols-lg-4 g-4">
             {filteredHostels.map(hostel => (
@@ -178,13 +220,18 @@ export default function Home({ user, apiUrl }) {
         )}
       </section>
 
+      {/* Messes Section */}
       <section>
         <div className="d-flex align-items-center mb-4">
           <h2 className="h3 fw-bold mb-0" style={{ color: '#1a3a5c' }}>🍽️ Available Mess Services</h2>
-          <span className="badge ms-3" style={{ backgroundColor: '#ff8c42' }}>{filteredMesses.length}</span>
+          <span className="badge ms-3" style={{ backgroundColor: '#28a745', padding: '10px 20px', borderRadius: '20px' }}>
+            {filteredMesses.length}
+          </span>
         </div>
         {filteredMesses.length === 0 ? (
-          <div className="alert alert-info">No mess services found.</div>
+          <div className="alert alert-info" style={{ borderRadius: '15px' }}>
+            No mess services found matching your criteria.
+          </div>
         ) : (
           <div className="row row-cols-1 row-cols-md-2 row-cols-lg-4 g-4">
             {filteredMesses.map(mess => (

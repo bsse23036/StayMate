@@ -4,12 +4,11 @@ import { useState } from 'react';
 export default function Auth({ onLogin, apiUrl }) {
   const [isLogin, setIsLogin] = useState(true);
   
-  // 1. FIXED: Set default role to 'student' (guest no longer exists in DB)
-  // 2. FIXED: Use 'full_name' instead of 'name' to match backend schema
   const [formData, setFormData] = useState({
     full_name: '',
     email: '',
     password: '',
+    phone_number: '',
     role: 'student' 
   });
   
@@ -34,10 +33,9 @@ export default function Auth({ onLogin, apiUrl }) {
       
       console.log("Connecting to:", fullUrl);
 
-      // 3. Prepare payload: send 'full_name' on register
       const payload = isLogin 
         ? { email: formData.email, password: formData.password }
-        : formData; // This includes full_name, role, etc.
+        : formData;
 
       const response = await fetch(fullUrl, {
         method: 'POST',
@@ -46,15 +44,17 @@ export default function Auth({ onLogin, apiUrl }) {
       });
 
       const data = await response.json();
+      console.log("Response:", data);
 
-      if (!response.ok) {
+      if (!response.ok || !data.success) {
         throw new Error(data.message || 'Authentication failed');
       }
 
+      // Success - call parent callback
       onLogin(data.user);
 
     } catch (err) {
-      console.error("Login Error:", err);
+      console.error("Auth Error:", err);
       setError(err.message || "Failed to connect to server");
     } finally {
       setLoading(false);
@@ -62,40 +62,65 @@ export default function Auth({ onLogin, apiUrl }) {
   };
 
   return (
-    <div className="container-fluid py-5" style={{ maxWidth: '1400px', margin: '0 auto' }}>
+    <div className="container py-5" style={{ maxWidth: '1200px' }}>
       <div className="row justify-content-center">
-        <div className="col-md-8 col-lg-6 col-xl-5">
-          <div className="card shadow-lg border-0">
+        <div className="col-md-8 col-lg-6">
+          <div className="card shadow-lg border-0" style={{ borderRadius: '20px' }}>
             <div className="card-body p-5">
-              <h3 className="card-title text-center mb-4" style={{ color: '#1a3a5c' }}>
-                {isLogin ? '👋 Login' : '📝 Sign Up'}
-              </h3>
+              <div className="text-center mb-4">
+                <img 
+                  src="/logo.png" 
+                  alt="StayMate Logo" 
+                  style={{ width: '80px', height: '80px', marginBottom: '20px' }}
+                />
+                <h3 className="fw-bold" style={{ color: '#1a3a5c' }}>
+                  {isLogin ? '👋 Welcome Back' : '📝 Create Account'}
+                </h3>
+                <p className="text-muted">
+                  {isLogin ? 'Login to continue' : 'Join StayMate today'}
+                </p>
+              </div>
 
               {error && (
-                <div className="alert alert-danger" role="alert">
+                <div className="alert alert-danger" role="alert" style={{ borderRadius: '10px' }}>
                   {error}
                 </div>
               )}
 
               <form onSubmit={handleSubmit}>
                 {!isLogin && (
-                  <div className="mb-3">
-                    <label className="form-label fw-bold">Full Name</label>
-                    <input
-                      type="text"
-                      className="form-control form-control-lg"
-                      // 4. FIXED: Input name matches state property 'full_name'
-                      name="full_name"
-                      value={formData.full_name}
-                      onChange={handleChange}
-                      required={!isLogin}
-                      placeholder="Enter your full name"
-                    />
-                  </div>
+                  <>
+                    <div className="mb-3">
+                      <label className="form-label fw-bold">Full Name *</label>
+                      <input
+                        type="text"
+                        className="form-control form-control-lg"
+                        name="full_name"
+                        value={formData.full_name}
+                        onChange={handleChange}
+                        required={!isLogin}
+                        placeholder="Enter your full name"
+                        style={{ borderRadius: '10px' }}
+                      />
+                    </div>
+
+                    <div className="mb-3">
+                      <label className="form-label fw-bold">Phone Number</label>
+                      <input
+                        type="tel"
+                        className="form-control form-control-lg"
+                        name="phone_number"
+                        value={formData.phone_number}
+                        onChange={handleChange}
+                        placeholder="+92 300 1234567"
+                        style={{ borderRadius: '10px' }}
+                      />
+                    </div>
+                  </>
                 )}
 
                 <div className="mb-3">
-                  <label className="form-label fw-bold">Email</label>
+                  <label className="form-label fw-bold">Email *</label>
                   <input
                     type="email"
                     className="form-control form-control-lg"
@@ -104,11 +129,12 @@ export default function Auth({ onLogin, apiUrl }) {
                     onChange={handleChange}
                     required
                     placeholder="your@email.com"
+                    style={{ borderRadius: '10px' }}
                   />
                 </div>
 
                 <div className="mb-3">
-                  <label className="form-label fw-bold">Password</label>
+                  <label className="form-label fw-bold">Password *</label>
                   <input
                     type="password"
                     className="form-control form-control-lg"
@@ -117,20 +143,21 @@ export default function Auth({ onLogin, apiUrl }) {
                     onChange={handleChange}
                     required
                     placeholder="Enter password"
+                    style={{ borderRadius: '10px' }}
                   />
                 </div>
 
                 {!isLogin && (
-                  <div className="mb-3">
-                    <label className="form-label fw-bold">Select Your Role</label>
+                  <div className="mb-4">
+                    <label className="form-label fw-bold">Select Your Role *</label>
                     <select
                       className="form-select form-select-lg"
                       name="role"
                       value={formData.role}
                       onChange={handleChange}
                       required
+                      style={{ borderRadius: '10px' }}
                     >
-                      {/* 5. FIXED: Removed 'guest' and added 'student' */}
                       <option value="student">🎓 Student (Book Hostels & Mess)</option>
                       <option value="hostel_owner">🏨 Hostel Owner (Manage Hostels)</option>
                       <option value="mess_owner">🍽️ Mess Owner (Manage Mess Services)</option>
@@ -142,21 +169,33 @@ export default function Auth({ onLogin, apiUrl }) {
                   type="submit" 
                   className="btn btn-lg w-100 text-white fw-bold"
                   disabled={loading}
-                  style={{ backgroundColor: '#ff8c42', border: 'none' }}
+                  style={{ 
+                    backgroundColor: '#ff8c42', 
+                    border: 'none',
+                    borderRadius: '25px',
+                    padding: '15px'
+                  }}
                 >
-                  {loading ? 'Connecting...' : (isLogin ? 'Login Now' : 'Create Account')}
+                  {loading ? (
+                    <>
+                      <span className="spinner-border spinner-border-sm me-2" role="status"></span>
+                      Processing...
+                    </>
+                  ) : (
+                    isLogin ? 'Login Now' : 'Create Account'
+                  )}
                 </button>
               </form>
 
               <div className="text-center mt-4">
                 <button
-                  type="button" // Add type="button" to prevent form submission
+                  type="button"
                   className="btn btn-link text-decoration-none"
                   onClick={() => {
                     setIsLogin(!isLogin);
                     setError('');
                   }}
-                  style={{ color: '#1a3a5c' }}
+                  style={{ color: '#1a3a5c', fontWeight: '600' }}
                 >
                   {isLogin 
                     ? "Don't have an account? Sign Up" 

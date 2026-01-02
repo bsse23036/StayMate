@@ -1,18 +1,20 @@
 // src/components/MessOwnerDashboard.jsx
 import { useState, useEffect } from 'react';
 import MessCard from './MessCard';
+import ImageUpload from './ImageUpload';
 
 export default function MessOwnerDashboard({ user, apiUrl }) {
   const [messes, setMesses] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingMess, setEditingMess] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  
   const [formData, setFormData] = useState({
     name: '',
     city: '',
     monthly_price: '',
     delivery_radius_km: '',
-    menu_description: '',
     image_url: ''
   });
 
@@ -22,14 +24,11 @@ export default function MessOwnerDashboard({ user, apiUrl }) {
       const response = await fetch(`${apiUrl}/messes/owner/${user.user_id || user.id}`);
       const data = await response.json();
       
-      if (response.ok) {
-        setMesses(Array.isArray(data) ? data : data.messes || []);
-      } else {
-        console.error('Failed to fetch messes:', data);
+      if (data.success) {
+        setMesses(data.messes || []);
       }
     } catch (error) {
       console.error('Error fetching messes:', error);
-      alert('Failed to load your mess services');
     } finally {
       setLoading(false);
     }
@@ -46,6 +45,42 @@ export default function MessOwnerDashboard({ user, apiUrl }) {
       ...formData,
       [e.target.name]: e.target.value
     });
+  };
+
+  const handleImageUpload = async (file) => {
+    setUploadingImage(true);
+    try {
+      const uploadUrlResponse = await fetch(`${apiUrl}/get-upload-url`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileName: file.name,
+          fileType: file.type
+        })
+      });
+
+      const data = await uploadUrlResponse.json();
+      
+      if (!data.success) {
+        throw new Error('Failed to get upload URL');
+      }
+
+      const { uploadUrl, finalImageUrl } = data;
+
+      await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type },
+        body: file
+      });
+
+      setFormData({ ...formData, image_url: finalImageUrl });
+      alert('Image uploaded successfully!');
+    } catch (error) {
+      console.error('Image upload error:', error);
+      alert('Failed to upload image');
+    } finally {
+      setUploadingImage(false);
+    }
   };
 
   const handleSubmit = async () => {
@@ -76,12 +111,12 @@ export default function MessOwnerDashboard({ user, apiUrl }) {
 
       const data = await response.json();
 
-      if (response.ok && data.success) {
-        alert(editingMess ? 'Mess updated!' : 'Mess added!');
+      if (data.success) {
+        alert(data.message);
         fetchMesses();
         resetForm();
       } else {
-        alert('Error: ' + (data.message || 'Operation failed'));
+        alert('Error: ' + data.message);
       }
     } catch (error) {
       console.error('Error:', error);
@@ -98,7 +133,6 @@ export default function MessOwnerDashboard({ user, apiUrl }) {
       city: mess.city,
       monthly_price: mess.monthly_price,
       delivery_radius_km: mess.delivery_radius_km || '',
-      menu_description: mess.menu_description || '',
       image_url: mess.image_url || ''
     });
     setShowForm(true);
@@ -115,11 +149,11 @@ export default function MessOwnerDashboard({ user, apiUrl }) {
       
       const data = await response.json();
       
-      if (response.ok && data.success) {
-        alert('Mess deleted!');
+      if (data.success) {
+        alert(data.message);
         fetchMesses();
       } else {
-        alert('Error: ' + (data.message || 'Delete failed'));
+        alert('Error: ' + data.message);
       }
     } catch (error) {
       console.error('Error:', error);
@@ -135,7 +169,6 @@ export default function MessOwnerDashboard({ user, apiUrl }) {
       city: '',
       monthly_price: '',
       delivery_radius_km: '',
-      menu_description: '',
       image_url: ''
     });
     setEditingMess(null);
@@ -145,18 +178,26 @@ export default function MessOwnerDashboard({ user, apiUrl }) {
   return (
     <div className="container-fluid px-4 py-4">
       <div className="d-flex justify-content-between align-items-center mb-4">
-        <h2 className="fw-bold" style={{ color: '#1a3a5c' }}>🍽️ My Mess Services</h2>
+        <h2 className="fw-bold" style={{ color: '#1a3a5c' }}>
+          🍽️ My Mess Services
+        </h2>
         <button 
-          className="btn btn-lg btn-success fw-bold"
+          className="btn btn-lg fw-bold"
           onClick={() => setShowForm(!showForm)}
+          style={{ 
+            backgroundColor: '#28a745',
+            color: 'white',
+            border: 'none',
+            borderRadius: '25px'
+          }}
           disabled={loading}
         >
-          {showForm ? '✖️ Cancel' : '➕ Add Mess'}
+          {showForm ? '✖️ Cancel' : '➕ Add Mess Service'}
         </button>
       </div>
 
       {showForm && (
-        <div className="card mb-4 shadow border-0">
+        <div className="card mb-4 shadow-lg border-0" style={{ borderRadius: '15px' }}>
           <div className="card-body p-4">
             <h5 className="card-title mb-4 fw-bold" style={{ color: '#1a3a5c' }}>
               {editingMess ? '✏️ Edit Mess Service' : '➕ Add New Mess Service'}
@@ -170,6 +211,7 @@ export default function MessOwnerDashboard({ user, apiUrl }) {
                   name="name"
                   value={formData.name}
                   onChange={handleChange}
+                  style={{ borderRadius: '10px' }}
                 />
               </div>
               <div className="col-md-6">
@@ -181,6 +223,7 @@ export default function MessOwnerDashboard({ user, apiUrl }) {
                   value={formData.city}
                   onChange={handleChange}
                   placeholder="e.g., Lahore"
+                  style={{ borderRadius: '10px' }}
                 />
               </div>
               <div className="col-md-6">
@@ -191,6 +234,7 @@ export default function MessOwnerDashboard({ user, apiUrl }) {
                   name="monthly_price"
                   value={formData.monthly_price}
                   onChange={handleChange}
+                  style={{ borderRadius: '10px' }}
                 />
               </div>
               <div className="col-md-6">
@@ -203,36 +247,29 @@ export default function MessOwnerDashboard({ user, apiUrl }) {
                   value={formData.delivery_radius_km}
                   onChange={handleChange}
                   placeholder="e.g., 2.5"
+                  style={{ borderRadius: '10px' }}
                 />
               </div>
               <div className="col-12">
-                <label className="form-label fw-bold">Menu Description</label>
-                <textarea
-                  className="form-control"
-                  name="menu_description"
-                  rows="3"
-                  value={formData.menu_description}
-                  onChange={handleChange}
-                  placeholder="E.g., Mon: Biryani, Tue: Daal Chawal, Wed: Chicken Karahi..."
-                />
-              </div>
-              <div className="col-12">
-                <label className="form-label fw-bold">Image URL</label>
-                <input
-                  type="url"
-                  className="form-control form-control-lg"
-                  name="image_url"
-                  value={formData.image_url}
-                  onChange={handleChange}
-                  placeholder="https://example.com/image.jpg"
+                <label className="form-label fw-bold">Mess Service Image</label>
+                <ImageUpload 
+                  onImageSelect={handleImageUpload}
+                  currentImageUrl={formData.image_url}
+                  loading={uploadingImage}
                 />
               </div>
             </div>
             <div className="mt-4">
               <button 
                 onClick={handleSubmit}
-                className="btn btn-lg btn-success fw-bold me-2"
-                disabled={loading}
+                className="btn btn-lg fw-bold me-2"
+                style={{ 
+                  backgroundColor: '#28a745',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '25px'
+                }}
+                disabled={loading || uploadingImage}
               >
                 {loading ? '⏳ Processing...' : (editingMess ? '💾 Update' : '➕ Add') + ' Mess'}
               </button>
@@ -240,6 +277,7 @@ export default function MessOwnerDashboard({ user, apiUrl }) {
                 onClick={resetForm}
                 className="btn btn-lg btn-secondary"
                 disabled={loading}
+                style={{ borderRadius: '25px' }}
               >
                 Cancel
               </button>
@@ -254,11 +292,11 @@ export default function MessOwnerDashboard({ user, apiUrl }) {
             <span className="visually-hidden">Loading...</span>
           </div>
         </div>
-      ) : messes.length === 0 ? (
+      ) : !showForm && messes.length === 0 ? (
         <div className="alert alert-info alert-lg">
-          You haven't added any mess services yet. Click "Add Mess" to get started!
+          You haven't added any mess services yet. Click "Add Mess Service" to get started!
         </div>
-      ) : (
+      ) : !showForm && (
         <div className="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
           {messes.map(mess => (
             <MessCard

@@ -6,6 +6,7 @@ import Auth from './components/Auth';
 import Home from './components/Home';
 import HostelOwnerDashboard from './components/HostelOwnerDashboard';
 import MessOwnerDashboard from './components/MessOwnerDashboard';
+import StudentDashboard from './components/StudentDashboard';
 
 function App() {
   const [user, setUser] = useState(null);
@@ -43,7 +44,7 @@ function App() {
       case 'mess_owner':
         return <MessOwnerDashboard user={user} apiUrl={API_URL} />;
       case 'student': 
-        return <Home user={user} apiUrl={API_URL} />; 
+        return <StudentDashboard user={user} apiUrl={API_URL} />; 
       default:
         return <Home user={user} apiUrl={API_URL} />;
     }

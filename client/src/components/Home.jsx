@@ -11,6 +11,11 @@ export default function Home({ user, apiUrl }) {
   const [priceRange, setPriceRange] = useState({ min: '', max: '' });
   const [loading, setLoading] = useState(true);
 
+  // --- NEW STATES FOR BOOKING MODAL ---
+  const [selectedHostel, setSelectedHostel] = useState(null);
+  const [hostelRooms, setHostelRooms] = useState([]);
+  const [loadingRooms, setLoadingRooms] = useState(false);
+
   useEffect(() => {
     if (apiUrl) {
       fetchListings();
@@ -19,8 +24,7 @@ export default function Home({ user, apiUrl }) {
 
   const fetchListings = async () => {
     try {
-      console.log("Fetching from AWS:", apiUrl);
-
+      setLoading(true);
       const [hostelsRes, messesRes] = await Promise.all([
         fetch(`${apiUrl}/hostels`),
         fetch(`${apiUrl}/messes`)
@@ -29,35 +33,18 @@ export default function Home({ user, apiUrl }) {
       const hostelsData = await hostelsRes.json();
       const messesData = await messesRes.json();
 
-      if (hostelsData.success && messesData.success) {
-        setHostels(hostelsData.hostels || []);
-        setMesses(messesData.messes || []);
-      }
+      if (hostelsData.success) setHostels(hostelsData.hostels || []);
+      if (messesData.success) setMesses(messesData.messes || []);
+
     } catch (error) {
       console.error('Error fetching listings:', error);
-      alert("Failed to load data. Please check console for details.");
     } finally {
       setLoading(false);
     }
   };
 
-  const filteredHostels = hostels.filter(h => {
-    const matchLocation = h.city?.toLowerCase().includes(searchLocation.toLowerCase()) || 
-                         h.location?.toLowerCase().includes(searchLocation.toLowerCase());
-    const matchPrice = (!priceRange.min || h.price_per_month >= parseInt(priceRange.min)) &&
-      (!priceRange.max || h.price_per_month <= parseInt(priceRange.max));
-    return matchLocation && matchPrice;
-  });
-
-  const filteredMesses = messes.filter(m => {
-    const matchLocation = m.city?.toLowerCase().includes(searchLocation.toLowerCase()) ||
-                         m.location?.toLowerCase().includes(searchLocation.toLowerCase());
-    const matchPrice = (!priceRange.min || m.monthly_price >= parseInt(priceRange.min)) &&
-      (!priceRange.max || m.monthly_price <= parseInt(priceRange.max));
-    return matchLocation && matchPrice;
-  });
-
-  const handleBooking = async (type, id) => {
+  // --- NEW: OPEN MODAL TO VIEW ROOMS ---
+  const openBookingModal = async (hostel) => {
     if (!user) {
       alert('Please login to book');
       return;
@@ -67,14 +54,35 @@ export default function Home({ user, apiUrl }) {
       return;
     }
 
+    setSelectedHostel(hostel);
+    setLoadingRooms(true);
+    setHostelRooms([]);
+
+    try {
+      const res = await fetch(`${apiUrl}/rooms/${hostel.hostel_id || hostel.id}`);
+      const data = await res.json();
+      if (data.success) {
+        setHostelRooms(data.rooms);
+      }
+    } catch (error) {
+      alert("Error loading rooms");
+    } finally {
+      setLoadingRooms(false);
+    }
+  };
+
+  // --- NEW: BOOK A SPECIFIC ROOM TYPE ---
+  const handleRoomBooking = async (roomType) => {
+    if (!confirm(`Request booking for ${roomType} Room?`)) return;
+
     try {
       const res = await fetch(`${apiUrl}/book`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           student_id: user.user_id || user.id,
-          hostel_id: type === 'hostel' ? id : null,
-          mess_id: type === 'mess' ? id : null,
+          hostel_id: selectedHostel.hostel_id || selectedHostel.id,
+          room_type: roomType, // Send the specific type
           start_date: new Date().toISOString().split('T')[0]
         })
       });
@@ -82,16 +90,70 @@ export default function Home({ user, apiUrl }) {
       const data = await res.json();
 
       if (data.success) {
-        alert(`✅ Booking Successful!`);
+        alert(`✅ Request Sent! Waiting for Owner Approval.`);
+        setSelectedHostel(null); // Close modal
       } else {
         alert(`❌ Booking Failed: ${data.message}`);
       }
-
     } catch (err) {
-      console.error(err);
       alert("Connection Error. Try again.");
     }
   };
+
+  // --- EXISTING: HANDLE MESS BOOKING (Direct) ---
+  const handleMessBooking = async (messId) => {
+    if (!user || user.role !== 'student') {
+      alert('Only students can book messes');
+      return;
+    }
+    if (!confirm("Confirm subscription to this Mess?")) return;
+
+    try {
+      const res = await fetch(`${apiUrl}/book`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          student_id: user.user_id || user.id,
+          mess_id: messId,
+          start_date: new Date().toISOString().split('T')[0]
+        })
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        alert(`✅ Subscription Request Sent!`);
+      } else {
+        alert(`❌ Failed: ${data.message}`);
+      }
+    } catch (err) {
+      alert("Connection Error");
+    }
+  };
+
+  // --- FILTER LOGIC (UNCHANGED) ---
+  const filteredHostels = hostels.filter(h => {
+    const term = searchLocation.toLowerCase();
+    const matchLocation = (h.city || '').toLowerCase().includes(term) ||
+      (h.location || '').toLowerCase().includes(term) ||
+      (h.name || '').toLowerCase().includes(term);
+
+    const price = h.price_per_month || h.price || 0;
+    const matchPrice = (!priceRange.min || price >= parseInt(priceRange.min)) &&
+      (!priceRange.max || price <= parseInt(priceRange.max));
+    return matchLocation && matchPrice;
+  });
+
+  const filteredMesses = messes.filter(m => {
+    const term = searchLocation.toLowerCase();
+    const matchLocation = (m.city || '').toLowerCase().includes(term) ||
+      (m.location || '').toLowerCase().includes(term) ||
+      (m.name || '').toLowerCase().includes(term);
+
+    const price = m.monthly_price || m.price || 0;
+    const matchPrice = (!priceRange.min || price >= parseInt(priceRange.min)) &&
+      (!priceRange.max || price <= parseInt(priceRange.max));
+    return matchLocation && matchPrice;
+  });
 
   if (loading) {
     return (
@@ -107,7 +169,7 @@ export default function Home({ user, apiUrl }) {
   return (
     <div className="container-fluid px-4 py-4">
       {/* Hero Section */}
-      <div className="text-center mb-5 py-4" style={{ 
+      <div className="text-center mb-5 py-4" style={{
         background: 'linear-gradient(135deg, #1a3a5c 0%, #2c5f8d 100%)',
         borderRadius: '20px',
         color: 'white'
@@ -121,7 +183,7 @@ export default function Home({ user, apiUrl }) {
               <input
                 type="text"
                 className="form-control border-0"
-                placeholder="🔍 Search by location (e.g., Lahore, Karachi)"
+                placeholder="🔍 Search by city or name..."
                 value={searchLocation}
                 onChange={(e) => setSearchLocation(e.target.value)}
                 style={{ borderRadius: '50px 0 0 50px', padding: '15px 25px' }}
@@ -145,21 +207,21 @@ export default function Home({ user, apiUrl }) {
                   <h6 className="fw-bold mb-3" style={{ color: '#1a3a5c' }}>💰 Price Range (Rs/month)</h6>
                   <div className="row g-3">
                     <div className="col-md-6">
-                      <input 
-                        type="number" 
-                        className="form-control form-control-lg" 
+                      <input
+                        type="number"
+                        className="form-control form-control-lg"
                         placeholder="Min Price"
-                        value={priceRange.min} 
+                        value={priceRange.min}
                         onChange={(e) => setPriceRange({ ...priceRange, min: e.target.value })}
                         style={{ borderRadius: '10px' }}
                       />
                     </div>
                     <div className="col-md-6">
-                      <input 
-                        type="number" 
-                        className="form-control form-control-lg" 
+                      <input
+                        type="number"
+                        className="form-control form-control-lg"
                         placeholder="Max Price"
-                        value={priceRange.max} 
+                        value={priceRange.max}
                         onChange={(e) => setPriceRange({ ...priceRange, max: e.target.value })}
                         style={{ borderRadius: '10px' }}
                       />
@@ -212,7 +274,8 @@ export default function Home({ user, apiUrl }) {
               <HostelCard
                 key={hostel.hostel_id || hostel.id}
                 hostel={hostel}
-                onBook={() => handleBooking('hostel', hostel.hostel_id || hostel.id)}
+                // UPDATE: Open Modal instead of direct booking
+                onBook={() => openBookingModal(hostel)}
                 showBookButton={user?.role === 'student'}
               />
             ))}
@@ -239,12 +302,75 @@ export default function Home({ user, apiUrl }) {
                 key={mess.mess_id || mess.id}
                 mess={mess}
                 showBookButton={user?.role === 'student'}
-                onBook={() => handleBooking('mess', mess.mess_id || mess.id)}
+                // UPDATE: Keep direct booking for mess
+                onBook={() => handleMessBooking(mess.mess_id || mess.id)}
               />
             ))}
           </div>
         )}
       </section>
+
+      {/* --- ROOM SELECTION MODAL --- */}
+      {selectedHostel && (
+        <div
+          className="position-fixed top-0 start-0 w-100 h-100 d-flex justify-content-center align-items-center"
+          style={{ backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 1050 }}
+          onClick={() => setSelectedHostel(null)} // Close on background click
+        >
+          <div
+            className="bg-white p-4 rounded-4 shadow-lg"
+            style={{ maxWidth: '600px', width: '90%', maxHeight: '90vh', overflowY: 'auto' }}
+            onClick={(e) => e.stopPropagation()} // Prevent close on modal click
+          >
+            <div className="d-flex justify-content-between align-items-center mb-4">
+              <div>
+                <h3 className="fw-bold m-0" style={{ color: '#1a3a5c' }}>{selectedHostel.name}</h3>
+                <small className="text-muted">Select a room type to request booking</small>
+              </div>
+              <button onClick={() => setSelectedHostel(null)} className="btn-close"></button>
+            </div>
+
+            {loadingRooms ? (
+              <div className="text-center py-5">
+                <div className="spinner-border text-primary"></div>
+                <p className="mt-2">Loading rooms...</p>
+              </div>
+            ) : hostelRooms.length === 0 ? (
+              <div className="alert alert-warning text-center">
+                ⚠️ No rooms listed for this hostel yet.
+              </div>
+            ) : (
+              <div className="vstack gap-3">
+                {hostelRooms.map((room) => (
+                  <div key={room.room_id} className="d-flex justify-content-between align-items-center p-3 border rounded-3 shadow-sm bg-light">
+                    <div>
+                      <h5 className="fw-bold mb-1" style={{ color: '#1a3a5c' }}>{room.room_type} Room</h5>
+                      <div className="text-muted small">
+                        {room.has_attached_bath ? '✅ Attached Bath' : '🚿 Shared Bath'} • {room.total_beds} Beds Total
+                      </div>
+                      <div className={`mt-1 fw-bold ${room.available_beds > 0 ? 'text-success' : 'text-danger'}`}>
+                        {room.available_beds > 0 ? `✔ ${room.available_beds} beds available` : '❌ Fully Booked'}
+                      </div>
+                    </div>
+                    <div className="text-end">
+                      <h5 className="text-primary fw-bold mb-2">Rs. {room.price_per_month}</h5>
+                      <button
+                        onClick={() => handleRoomBooking(room.room_type)}
+                        disabled={room.available_beds <= 0}
+                        className={`btn btn-sm rounded-pill px-4 fw-bold ${room.available_beds > 0 ? 'btn-primary' : 'btn-secondary'}`}
+                        style={{ backgroundColor: room.available_beds > 0 ? '#1a3a5c' : '#6c757d' }}
+                      >
+                        {room.available_beds > 0 ? 'Request Booking' : 'Full'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

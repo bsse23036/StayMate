@@ -20,15 +20,28 @@ export default function MessOwnerDashboard({ user, apiUrl }) {
 
   const fetchMesses = async () => {
     try {
+      console.log('🔍 Fetching messes for owner:', user.user_id || user.id);
+      console.log('🔍 URL:', `${apiUrl}/messes/owner/${user.user_id || user.id}`);
+      
       setLoading(true);
       const response = await fetch(`${apiUrl}/messes/owner/${user.user_id || user.id}`);
-      const data = await response.json();
       
-      if (data.success) {
+      console.log('📊 Response status:', response.status);
+      console.log('📊 Response ok:', response.ok);
+      
+      const data = await response.json();
+      console.log('📦 Response data:', data);
+      
+      if (response.ok && data.success) {
+        console.log('✅ Messes loaded:', data.messes.length);
         setMesses(data.messes || []);
+      } else {
+        console.error('❌ Failed to fetch messes:', data.message);
+        alert('Failed to load mess services: ' + (data.message || 'Unknown error'));
       }
     } catch (error) {
-      console.error('Error fetching messes:', error);
+      console.error('💥 Error fetching messes:', error);
+      alert('Error loading messes: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -50,6 +63,8 @@ export default function MessOwnerDashboard({ user, apiUrl }) {
   const handleImageUpload = async (file) => {
     setUploadingImage(true);
     try {
+      console.log('📸 Uploading image:', file.name);
+      
       const uploadUrlResponse = await fetch(`${apiUrl}/get-upload-url`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -60,32 +75,36 @@ export default function MessOwnerDashboard({ user, apiUrl }) {
       });
 
       const data = await uploadUrlResponse.json();
+      console.log('📸 Upload URL response:', data);
       
       if (!data.success) {
-        throw new Error('Failed to get upload URL');
+        throw new Error(data.error || 'Failed to get upload URL');
       }
 
       const { uploadUrl, finalImageUrl } = data;
 
+      console.log('📸 Uploading to S3...');
       await fetch(uploadUrl, {
         method: 'PUT',
         headers: { 'Content-Type': file.type },
         body: file
       });
 
+      console.log('✅ Image uploaded:', finalImageUrl);
       setFormData({ ...formData, image_url: finalImageUrl });
       alert('Image uploaded successfully!');
     } catch (error) {
-      console.error('Image upload error:', error);
-      alert('Failed to upload image');
+      console.error('💥 Image upload error:', error);
+      alert('Failed to upload image: ' + error.message);
     } finally {
       setUploadingImage(false);
     }
   };
 
   const handleSubmit = async () => {
+    // Validate required fields
     if (!formData.name || !formData.city || !formData.monthly_price) {
-      alert('Please fill all required fields');
+      alert('Please fill all required fields: Name, City, and Monthly Price');
       return;
     }
 
@@ -99,6 +118,11 @@ export default function MessOwnerDashboard({ user, apiUrl }) {
         delivery_radius_km: formData.delivery_radius_km ? parseFloat(formData.delivery_radius_km) : null
       };
 
+      console.log('=== SUBMITTING MESS ===');
+      console.log('Method:', editingMess ? 'PUT' : 'POST');
+      console.log('URL:', editingMess ? `${apiUrl}/messes/${editingMess.mess_id}` : `${apiUrl}/messes`);
+      console.log('Payload:', payload);
+
       const url = editingMess 
         ? `${apiUrl}/messes/${editingMess.mess_id}`
         : `${apiUrl}/messes`;
@@ -109,17 +133,33 @@ export default function MessOwnerDashboard({ user, apiUrl }) {
         body: JSON.stringify(payload)
       });
 
-      const data = await response.json();
+      console.log('📊 Response status:', response.status);
+      console.log('📊 Response ok:', response.ok);
 
-      if (data.success) {
+      // Check if response is JSON
+      const contentType = response.headers.get('content-type');
+      console.log('📊 Content-Type:', contentType);
+
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text();
+        console.error('❌ Received HTML instead of JSON:', text.substring(0, 200));
+        throw new Error('Server returned HTML instead of JSON. The API endpoint may not exist. Please check Lambda deployment.');
+      }
+
+      const data = await response.json();
+      console.log('📦 Response data:', data);
+
+      if (response.ok && data.success) {
+        console.log('✅ Mess saved successfully');
         alert(data.message);
-        fetchMesses();
+        await fetchMesses(); // Refresh the list
         resetForm();
       } else {
-        alert('Error: ' + data.message);
+        console.error('❌ Failed to save mess:', data.message);
+        alert('Error: ' + (data.message || 'Failed to save mess service'));
       }
     } catch (error) {
-      console.error('Error:', error);
+      console.error('💥 Submit error:', error);
       alert('Error: ' + error.message);
     } finally {
       setLoading(false);
@@ -127,6 +167,7 @@ export default function MessOwnerDashboard({ user, apiUrl }) {
   };
 
   const handleEdit = (mess) => {
+    console.log('✏️ Editing mess:', mess);
     setEditingMess(mess);
     setFormData({
       name: mess.name,
@@ -139,24 +180,29 @@ export default function MessOwnerDashboard({ user, apiUrl }) {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Delete this mess service?')) return;
+    if (!confirm('Are you sure you want to delete this mess service?')) return;
 
     try {
+      console.log('🗑️ Deleting mess:', id);
       setLoading(true);
+      
       const response = await fetch(`${apiUrl}/messes/${id}`, {
         method: 'DELETE'
       });
       
       const data = await response.json();
+      console.log('📦 Delete response:', data);
       
-      if (data.success) {
+      if (response.ok && data.success) {
+        console.log('✅ Mess deleted');
         alert(data.message);
-        fetchMesses();
+        await fetchMesses(); // Refresh the list
       } else {
-        alert('Error: ' + data.message);
+        console.error('❌ Failed to delete:', data.message);
+        alert('Error: ' + (data.message || 'Failed to delete mess service'));
       }
     } catch (error) {
-      console.error('Error:', error);
+      console.error('💥 Delete error:', error);
       alert('Error: ' + error.message);
     } finally {
       setLoading(false);
@@ -212,6 +258,7 @@ export default function MessOwnerDashboard({ user, apiUrl }) {
                   value={formData.name}
                   onChange={handleChange}
                   style={{ borderRadius: '10px' }}
+                  placeholder="e.g., Al-Kareem Mess"
                 />
               </div>
               <div className="col-md-6">
@@ -235,6 +282,7 @@ export default function MessOwnerDashboard({ user, apiUrl }) {
                   value={formData.monthly_price}
                   onChange={handleChange}
                   style={{ borderRadius: '10px' }}
+                  placeholder="e.g., 5000"
                 />
               </div>
               <div className="col-md-6">
@@ -271,7 +319,14 @@ export default function MessOwnerDashboard({ user, apiUrl }) {
                 }}
                 disabled={loading || uploadingImage}
               >
-                {loading ? '⏳ Processing...' : (editingMess ? '💾 Update' : '➕ Add') + ' Mess'}
+                {loading ? (
+                  <>
+                    <span className="spinner-border spinner-border-sm me-2" role="status"></span>
+                    Processing...
+                  </>
+                ) : (
+                  (editingMess ? '💾 Update' : '➕ Add') + ' Mess Service'
+                )}
               </button>
               <button 
                 onClick={resetForm}
@@ -288,13 +343,15 @@ export default function MessOwnerDashboard({ user, apiUrl }) {
 
       {loading && !showForm ? (
         <div className="text-center py-5">
-          <div className="spinner-border text-primary" role="status">
+          <div className="spinner-border text-primary" role="status" style={{ width: '3rem', height: '3rem' }}>
             <span className="visually-hidden">Loading...</span>
           </div>
+          <p className="mt-3 text-muted">Loading mess services...</p>
         </div>
       ) : !showForm && messes.length === 0 ? (
-        <div className="alert alert-info alert-lg">
-          You haven't added any mess services yet. Click "Add Mess Service" to get started!
+        <div className="alert alert-info" style={{ borderRadius: '15px' }}>
+          <h5 className="alert-heading">No Mess Services Yet</h5>
+          <p className="mb-0">You haven't added any mess services yet. Click "Add Mess Service" to get started!</p>
         </div>
       ) : !showForm && (
         <div className="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">

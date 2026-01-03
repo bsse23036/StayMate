@@ -10,27 +10,18 @@ export default function StudentDashboard({ user, apiUrl }) {
   const fetchStudentData = async () => {
     try {
       setLoading(true);
-      console.log('🔍 Fetching dashboard for student:', user.user_id);
+      console.log('🔍 Fetching dashboard for student:', user.user_id || user.id);
 
-      // We fetch ALL bookings and then filter by student_id client-side 
-      // (or you can create a specific backend endpoint /bookings/student/:id for better performance)
-      const response = await fetch(`${apiUrl}/bookings`);
+      // UPDATED: Now passing student_id as a query parameter
+      const studentId = user.user_id || user.id;
+      const response = await fetch(`${apiUrl}/bookings?student_id=${studentId}`);
       const data = await response.json();
 
       if (data.success) {
-        // Filter Room Bookings
-        const myRooms = data.bookings.filter(b =>
-          b.student_id === user.user_id && b.room_id // Ensure it's a room booking
-        );
-
-        // Filter Mess Subscriptions
-        const myMess = data.bookings.filter(b =>
-          b.student_id === user.user_id && b.mess_id // Ensure it's a mess sub
-        );
-
-        setBookings(myRooms);
-        setMessSubscriptions(myMess);
-        console.log('✅ Loaded:', myRooms.length, 'rooms,', myMess.length, 'messes');
+        // Backend now separates them for us
+        setBookings(data.bookings);
+        setMessSubscriptions(data.subscriptions);
+        console.log('✅ Loaded:', data.bookings.length, 'rooms,', data.subscriptions.length, 'messes');
       } else {
         console.error('❌ Failed to load bookings:', data.message);
       }
@@ -47,27 +38,25 @@ export default function StudentDashboard({ user, apiUrl }) {
     }
   }, [user, apiUrl]);
 
-  // Handle Cancellation (Works for both Rooms and Mess)
+  // Handle Cancellation
   const handleCancel = async (id, type) => {
+    // Note: Ensure your backend supports DELETE on these endpoints
+    // If not, you might need to add specific DELETE routes in index.js
     if (!confirm(`Are you sure you want to cancel this ${type}?`)) return;
 
     try {
-      // Assuming your backend supports DELETE /bookings/:id or /mess-subscriptions/:id
-      // If not, you might need to add a "status: cancelled" update logic here.
-      // For now, let's simulate a delete request.
-
-      const endpoint = type === 'booking' ? `/bookings/${id}` : `/mess-subscriptions/${id}`;
-      // Note: You need to ensure your backend has DELETE routes for these. 
-      // If not, you can ask me to add them to index.js!
+      // Determine endpoint based on type
+      const endpoint = type === 'booking'
+        ? `/bookings/${id}`  // You might need to implement this DELETE route
+        : `/mess-subscriptions/${id}`; // You might need to implement this DELETE route
 
       const response = await fetch(`${apiUrl}${endpoint}`, { method: 'DELETE' });
-      const data = await response.json();
-
-      if (data.success) {
+      // If the backend doesn't return JSON for delete, check status
+      if (response.ok) {
         alert(`${type} cancelled successfully!`);
         fetchStudentData(); // Refresh list
       } else {
-        alert('Failed to cancel: ' + (data.message || 'Unknown error'));
+        alert('Failed to cancel. Please contact support.');
       }
     } catch (error) {
       console.error('Cancel Error:', error);
@@ -78,13 +67,29 @@ export default function StudentDashboard({ user, apiUrl }) {
   // Helper for Status Badge
   const StatusBadge = ({ status }) => {
     let color = 'bg-secondary';
-    if (status === 'confirmed' || status === true) color = 'bg-success';
-    if (status === 'pending') color = 'bg-warning text-dark';
-    if (status === 'cancelled') color = 'bg-danger';
+    let label = status;
+
+    if (status === 'confirmed' || status === true) {
+      color = 'bg-success';
+      label = 'Active';
+    }
+    if (status === 'pending') {
+      color = 'bg-warning text-dark';
+      label = 'Pending Approval';
+    }
+    if (status === 'cancelled') {
+      color = 'bg-danger';
+      label = 'Cancelled';
+    }
+    // Handle boolean for mess subscriptions
+    if (status === false) {
+      color = 'bg-danger';
+      label = 'Inactive';
+    }
 
     return (
       <span className={`badge ${color} rounded-pill px-3 py-2`}>
-        {status === true ? 'Active' : status}
+        {label}
       </span>
     );
   };
@@ -129,16 +134,19 @@ export default function StudentDashboard({ user, apiUrl }) {
                     <div key={booking.booking_id} className="p-3 border rounded-3 bg-light position-relative">
                       <div className="d-flex justify-content-between align-items-start mb-2">
                         <div>
-                          <h5 className="fw-bold mb-1">Room #{booking.room_id}</h5>
+                          {/* UPDATED: Using property_name from new SQL query */}
+                          <h5 className="fw-bold mb-1">{booking.property_name}</h5>
                           <p className="text-muted small mb-0">
-                            📅 Booked on: {new Date(booking.created_at).toLocaleDateString()}
+                            {booking.details} {/* Shows 'Single Room', etc. */}
                           </p>
                         </div>
                         <StatusBadge status={booking.status} />
                       </div>
 
                       <div className="d-flex justify-content-between align-items-center mt-3 border-top pt-3">
-                        <small className="text-muted">Start Date: {new Date(booking.start_date).toLocaleDateString()}</small>
+                        <small className="text-muted">
+                          Start Date: {new Date(booking.start_date).toLocaleDateString()}
+                        </small>
                         <button
                           className="btn btn-sm btn-outline-danger rounded-pill px-3"
                           onClick={() => handleCancel(booking.booking_id, 'booking')}
@@ -173,16 +181,20 @@ export default function StudentDashboard({ user, apiUrl }) {
                     <div key={sub.subscription_id} className="p-3 border rounded-3 bg-light position-relative">
                       <div className="d-flex justify-content-between align-items-start mb-2">
                         <div>
-                          <h5 className="fw-bold mb-1">Mess Service #{sub.mess_id}</h5>
+                          {/* UPDATED: Using property_name from new SQL query */}
+                          <h5 className="fw-bold mb-1">{sub.property_name}</h5>
                           <p className="text-muted small mb-0">
-                            📅 Subscribed: {new Date(sub.created_at).toLocaleDateString()}
+                            {sub.details} {/* Shows 'Monthly Plan' */}
                           </p>
                         </div>
+                        {/* UPDATED: Passing is_active boolean */}
                         <StatusBadge status={sub.is_active} />
                       </div>
 
                       <div className="d-flex justify-content-between align-items-center mt-3 border-top pt-3">
-                        <small className="text-muted">Start Date: {new Date(sub.start_date).toLocaleDateString()}</small>
+                        <small className="text-muted">
+                          Start Date: {new Date(sub.start_date).toLocaleDateString()}
+                        </small>
                         <button
                           className="btn btn-sm btn-outline-danger rounded-pill px-3"
                           onClick={() => handleCancel(sub.subscription_id, 'subscription')}

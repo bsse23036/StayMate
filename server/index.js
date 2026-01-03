@@ -540,6 +540,29 @@ app.get('/messes/owner/:ownerId', async(req, res) => {
     }
 });
 
+app.get('/mess-subscribers/:id', async(req, res) => {
+    try {
+        const mess_id = req.params.id;
+
+        const query = `
+            SELECT ms.subscription_id, ms.start_date, ms.created_at,
+                   u.full_name as student_name, u.phone_number, u.email as student_email
+            FROM mess_subscriptions ms
+            JOIN users u ON ms.student_id = u.user_id
+            WHERE ms.mess_id = $1
+            ORDER BY ms.created_at DESC
+        `;
+
+        const result = await queryDB(query, [mess_id]);
+
+        res.json({ success: true, subscribers: result.rows });
+
+    } catch (err) {
+        console.error("Error fetching subscribers:", err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
 app.post('/messes', async(req, res) => {
     try {
         console.log('POST /messes called with body:', req.body);
@@ -577,14 +600,25 @@ app.post('/messes', async(req, res) => {
 
 app.put('/messes/:id', async(req, res) => {
     try {
+        // Destructure the updated values from the request body
         const { name, city, monthly_price, delivery_radius_km, main_image_url } = req.body;
 
+        // Execute SQL Update Query
+        // We use RETURNING * to get the updated row back immediately
         const result = await queryDB(
             `UPDATE mess_services 
              SET name=$1, city=$2, monthly_price=$3, delivery_radius_km=$4, main_image_url=$5 
-             WHERE mess_id=$6 RETURNING *`, [name, city, parseFloat(monthly_price), delivery_radius_km ? parseFloat(delivery_radius_km) : null, main_image_url, req.params.id]
+             WHERE mess_id=$6 RETURNING *`, [
+                name,
+                city,
+                parseFloat(monthly_price), // Ensure price is stored as a number
+                delivery_radius_km ? parseFloat(delivery_radius_km) : null, // Handle optional delivery radius
+                main_image_url,
+                req.params.id // Get the Mess ID from the URL parameter
+            ]
         );
 
+        // Check if the mess existed
         if (result.rows.length === 0) {
             return res.status(404).json({
                 success: false,
@@ -592,12 +626,15 @@ app.put('/messes/:id', async(req, res) => {
             });
         }
 
+        // Send success response with the updated data
         return res.status(200).json({
             success: true,
             message: 'Mess service updated successfully!',
             mess: result.rows[0]
         });
+
     } catch (err) {
+        // Handle any server or database errors
         console.error('Update mess error:', err);
         return res.status(500).json({
             success: false,
@@ -631,14 +668,13 @@ app.delete('/messes/:id', async(req, res) => {
 app.post('/book', async(req, res) => {
     try {
         const { student_id, hostel_id, mess_id, start_date, room_type } = req.body;
-
         if (hostel_id) {
-            // 1. Validation: Ensure room_type is sent
+            // Validation: Ensure room_type is sent
             if (!room_type) {
                 return res.status(400).json({ success: false, message: 'Please select a room type' });
             }
 
-            // 2. Find a specific room that matches Hostel + Type + Availability
+            // Find a specific room that matches Hostel + Type + Availability
             const roomCheck = await queryDB(
                 `SELECT room_id, available_beds FROM rooms 
                  WHERE hostel_id = $1 AND room_type = $2 AND available_beds > 0 
@@ -651,22 +687,38 @@ app.post('/book', async(req, res) => {
 
             const room_id = roomCheck.rows[0].room_id;
 
-            // 3. Create booking with 'pending' status
+            // Create booking with 'pending' status
             await queryDB(
                 `INSERT INTO room_bookings (student_id, room_id, start_date, status) 
                  VALUES ($1, $2, $3, 'pending')`, [student_id, room_id, start_date || new Date()]
             );
 
+            return res.json({ success: true, message: '🏠 Hostel booking request sent! Waiting for owner approval.' });
         } else if (mess_id) {
+            // Check if already subscribed
+            const check = await queryDB(
+                `SELECT * FROM mess_subscriptions 
+                 WHERE student_id = $1 AND mess_id = $2 AND is_active = TRUE`, [student_id, mess_id]
+            );
+
+            if (check.rows.length > 0) {
+                return res.status(400).json({ success: false, message: 'You are already subscribed to this mess!' });
+            }
+
+            // Create subscription with 'is_active = TRUE' (Instant Activation)
             await queryDB(
                 `INSERT INTO mess_subscriptions (student_id, mess_id, start_date, is_active) 
-                 VALUES ($1, $2, $3, false)`, [student_id, mess_id, start_date || new Date()]
+                 VALUES ($1, $2, $3, TRUE)`, [student_id, mess_id, start_date || new Date()]
             );
+
+            return res.json({ success: true, message: '✅ Mess subscription activated instantly!' });
         }
 
-        res.json({ success: true, message: 'Booking request sent! Waiting for owner approval.' });
+        // Fallback if neither ID is provided
+        return res.status(400).json({ success: false, message: 'Invalid booking request' });
 
     } catch (err) {
+        console.error(err);
         res.status(500).json({ success: false, message: err.message });
     }
 });
@@ -676,7 +728,7 @@ app.delete('/bookings/:id', async(req, res) => {
     try {
         const bookingId = req.params.id;
 
-        // 1. Get the booking details first (to find the room_id)
+        // Get the booking details first (to find the room_id)
         const bookingCheck = await queryDB('SELECT * FROM room_bookings WHERE booking_id = $1', [bookingId]);
 
         if (bookingCheck.rows.length === 0) {
@@ -685,10 +737,10 @@ app.delete('/bookings/:id', async(req, res) => {
 
         const { room_id } = bookingCheck.rows[0];
 
-        // 2. Delete the booking
+        // Delete the booking
         await queryDB('DELETE FROM room_bookings WHERE booking_id = $1', [bookingId]);
 
-        // 3. CRITICAL: Increase the available beds back by 1
+        // Increase the available beds back by 1
         await queryDB('UPDATE rooms SET available_beds = available_beds + 1 WHERE room_id = $1', [room_id]);
 
         res.json({ success: true, message: 'Booking cancelled and bed restored!' });
@@ -703,14 +755,13 @@ app.delete('/mess-subscriptions/:id', async(req, res) => {
     try {
         const subId = req.params.id;
 
-        // 1. Check if it exists
+        // Check if it exists
         const subCheck = await queryDB('SELECT * FROM mess_subscriptions WHERE subscription_id = $1', [subId]);
 
         if (subCheck.rows.length === 0) {
             return res.status(404).json({ success: false, message: 'Subscription not found' });
         }
-
-        // 2. Delete it
+        // Delete it
         await queryDB('DELETE FROM mess_subscriptions WHERE subscription_id = $1', [subId]);
 
         res.json({ success: true, message: 'Mess subscription cancelled!' });
@@ -720,11 +771,56 @@ app.delete('/mess-subscriptions/:id', async(req, res) => {
     }
 });
 
+app.get('/bookings', async(req, res) => {
+    try {
+        const { student_id } = req.query;
+
+        // Validation: If no ID is sent, return empty arrays
+        if (!student_id) {
+            return res.json({ success: true, bookings: [], subscriptions: [] });
+        }
+
+        // Fetch Hostel Bookings
+        const hostelQuery = `
+            SELECT rb.booking_id, h.name as property_name, r.room_type as details, 
+                   rb.start_date, rb.status, 'Hostel' as type
+            FROM room_bookings rb
+            JOIN rooms r ON rb.room_id = r.room_id
+            JOIN hostels h ON r.hostel_id = h.hostel_id
+            WHERE rb.student_id = $1
+            ORDER BY rb.created_at DESC
+        `;
+        const hostelRes = await queryDB(hostelQuery, [student_id]);
+
+        // Fetch Mess Subscriptions
+        const messQuery = `
+            SELECT ms.subscription_id, m.name as property_name, 'Monthly Plan' as details,
+                   ms.start_date, ms.is_active, 'Mess' as type
+            FROM mess_subscriptions ms
+            JOIN mess_services m ON ms.mess_id = m.mess_id
+            WHERE ms.student_id = $1
+            ORDER BY ms.created_at DESC
+        `;
+        const messRes = await queryDB(messQuery, [student_id]);
+
+        // Return Data
+        res.json({
+            success: true,
+            bookings: hostelRes.rows,
+            subscriptions: messRes.rows
+        });
+
+    } catch (err) {
+        console.error("GET /bookings Error:", err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
 // ==========================================
 //                 REVIEWS
 // ==========================================
 
-// 1. Submit a Review
+// Submit a Review
 app.post('/reviews', async(req, res) => {
     try {
         const { student_id, hostel_id, mess_id, rating, comment } = req.body;
@@ -736,7 +832,7 @@ app.post('/reviews', async(req, res) => {
 
         await queryDB(
             `INSERT INTO reviews (student_id, hostel_id, mess_id, rating, comment) 
-             VALUES ($1, $2, $3, $4, $5)`, [student_id, hostel_id, mess_id, rating, comment]
+            VALUES ($1, $2, $3, $4, $5)`, [student_id, hostel_id, mess_id, rating, comment]
         );
 
         res.json({ success: true, message: 'Review submitted successfully!' });
@@ -746,11 +842,14 @@ app.post('/reviews', async(req, res) => {
     }
 });
 
-// 2. Get Reviews
+// Get a Review
 app.get('/reviews', async(req, res) => {
     try {
+        // Extract hostel_id or mess_id from the query parameters (e.g., /reviews?hostel_id=1)
         const { hostel_id, mess_id } = req.query;
 
+        // Start building the SQL query
+        // We use a LEFT JOIN to fetch the student's name from the 'users' table alongside the review
         let query = `
             SELECT r.rating, r.comment, r.created_at, u.full_name as student_name 
             FROM reviews r
@@ -758,6 +857,7 @@ app.get('/reviews', async(req, res) => {
         `;
         let params = [];
 
+        // Dynamically add the WHERE clause based on the target (Hostel or Mess)
         if (hostel_id) {
             query += ` WHERE r.hostel_id = $1`;
             params.push(hostel_id);
@@ -765,14 +865,21 @@ app.get('/reviews', async(req, res) => {
             query += ` WHERE r.mess_id = $1`;
             params.push(mess_id);
         } else {
+            // If neither ID is provided, return an empty list immediately
             return res.json({ success: true, reviews: [] });
         }
 
+        // Order results so the newest reviews appear first
         query += ` ORDER BY r.created_at DESC`;
 
+        // Execute the query
         const result = await queryDB(query, params);
+
+        // Send the list of reviews back to the frontend
         res.json({ success: true, reviews: result.rows });
+
     } catch (err) {
+        // Handle any server errors
         res.status(500).json({ success: false, message: err.message });
     }
 });

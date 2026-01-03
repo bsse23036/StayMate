@@ -500,7 +500,7 @@ app.get('/messes', async(req, res) => {
     try {
         const result = await queryDB(
             `SELECT mess_id as id, name, city as location, monthly_price as price, 
-                    delivery_radius_km, owner_id 
+                    delivery_radius_km, owner_id, main_image_url 
              FROM mess_services ORDER BY mess_id DESC`
         );
 
@@ -544,7 +544,7 @@ app.post('/messes', async(req, res) => {
     try {
         console.log('POST /messes called with body:', req.body);
 
-        const { owner_id, name, city, monthly_price, delivery_radius_km } = req.body;
+        const { owner_id, name, city, monthly_price, delivery_radius_km, main_image_url } = req.body;
 
         // Validate required fields
         if (!owner_id || !name || !city || !monthly_price) {
@@ -555,8 +555,8 @@ app.post('/messes', async(req, res) => {
         }
 
         const result = await queryDB(
-            `INSERT INTO mess_services (owner_id, name, city, monthly_price, delivery_radius_km) 
-             VALUES ($1, $2, $3, $4, $5) RETURNING *`, [owner_id, name, city, parseFloat(monthly_price), delivery_radius_km ? parseFloat(delivery_radius_km) : null]
+            `INSERT INTO mess_services (owner_id, name, city, monthly_price, delivery_radius_km, main_image_url) 
+             VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`, [owner_id, name, city, parseFloat(monthly_price), delivery_radius_km ? parseFloat(delivery_radius_km) : null, main_image_url]
         );
 
         console.log('Mess created:', result.rows[0].mess_id);
@@ -577,12 +577,12 @@ app.post('/messes', async(req, res) => {
 
 app.put('/messes/:id', async(req, res) => {
     try {
-        const { name, city, monthly_price, delivery_radius_km } = req.body;
+        const { name, city, monthly_price, delivery_radius_km, main_image_url } = req.body;
 
         const result = await queryDB(
             `UPDATE mess_services 
-             SET name=$1, city=$2, monthly_price=$3, delivery_radius_km=$4 
-             WHERE mess_id=$5 RETURNING *`, [name, city, parseFloat(monthly_price), delivery_radius_km ? parseFloat(delivery_radius_km) : null, req.params.id]
+             SET name=$1, city=$2, monthly_price=$3, delivery_radius_km=$4, main_image_url=$5 
+             WHERE mess_id=$6 RETURNING *`, [name, city, parseFloat(monthly_price), delivery_radius_km ? parseFloat(delivery_radius_km) : null, main_image_url, req.params.id]
         );
 
         if (result.rows.length === 0) {
@@ -720,51 +720,60 @@ app.delete('/mess-subscriptions/:id', async(req, res) => {
     }
 });
 
-// =============================================
-//              ADMIN ENDPOINTS
-// =============================================
+// ==========================================
+//                 REVIEWS
+// ==========================================
 
-app.get('/users', async(req, res) => {
+// 1. Submit a Review
+app.post('/reviews', async(req, res) => {
     try {
-        const result = await queryDB(
-            'SELECT user_id, full_name, email, role, created_at FROM users ORDER BY created_at DESC'
+        const { student_id, hostel_id, mess_id, rating, comment } = req.body;
+
+        // Basic validation
+        if (!student_id || !rating || (!hostel_id && !mess_id)) {
+            return res.status(400).json({ success: false, message: 'Missing required fields' });
+        }
+
+        await queryDB(
+            `INSERT INTO reviews (student_id, hostel_id, mess_id, rating, comment) 
+             VALUES ($1, $2, $3, $4, $5)`, [student_id, hostel_id, mess_id, rating, comment]
         );
 
-        return res.status(200).json({
-            success: true,
-            users: result.rows
-        });
+        res.json({ success: true, message: 'Review submitted successfully!' });
     } catch (err) {
-        console.error('Get users error:', err);
-        return res.status(500).json({
-            success: false,
-            message: 'Error fetching users: ' + err.message
-        });
+        console.error(err);
+        res.status(500).json({ success: false, message: err.message });
     }
 });
 
-app.get('/bookings', async(req, res) => {
+// 2. Get Reviews
+app.get('/reviews', async(req, res) => {
     try {
-        const roomBookings = await queryDB(`
-            SELECT booking_id, student_id, room_id, start_date, status, created_at 
-            FROM room_bookings ORDER BY created_at DESC
-        `);
+        const { hostel_id, mess_id } = req.query;
 
-        const messSubscriptions = await queryDB(`
-            SELECT subscription_id, student_id, mess_id, start_date, is_active, created_at 
-            FROM mess_subscriptions ORDER BY created_at DESC
-        `);
+        let query = `
+            SELECT r.rating, r.comment, r.created_at, u.full_name as student_name 
+            FROM reviews r
+            LEFT JOIN users u ON r.student_id = u.user_id
+        `;
+        let params = [];
 
-        return res.status(200).json({
-            success: true,
-            bookings: [...roomBookings.rows, ...messSubscriptions.rows]
-        });
+        if (hostel_id) {
+            query += ` WHERE r.hostel_id = $1`;
+            params.push(hostel_id);
+        } else if (mess_id) {
+            query += ` WHERE r.mess_id = $1`;
+            params.push(mess_id);
+        } else {
+            return res.json({ success: true, reviews: [] });
+        }
+
+        query += ` ORDER BY r.created_at DESC`;
+
+        const result = await queryDB(query, params);
+        res.json({ success: true, reviews: result.rows });
     } catch (err) {
-        console.error('Get bookings error:', err);
-        return res.status(500).json({
-            success: false,
-            message: 'Error fetching bookings: ' + err.message
-        });
+        res.status(500).json({ success: false, message: err.message });
     }
 });
 

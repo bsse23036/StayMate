@@ -559,6 +559,8 @@ export default function HostelOwnerDashboard({ user, apiUrl }) {
                   {/* Image Upload */}
                   <div className="col-12">
                     <label className="form-label fw-bold">Hostel Image</label>
+
+                    {/* 1. File Input */}
                     <input
                       type="file"
                       className="form-control form-control-lg"
@@ -570,16 +572,34 @@ export default function HostelOwnerDashboard({ user, apiUrl }) {
                       }}
                       disabled={uploadingImage}
                       style={{ borderRadius: '10px' }}
+                      // Clear value so selecting the same file twice works if needed
+                      value={""}
                     />
+
+                    {/* 2. Loading State */}
                     {uploadingImage && (
                       <div className="mt-3 text-primary fw-bold">
                         <span className="spinner-border spinner-border-sm me-2" role="status"></span>
                         Uploading image to Cloud... please wait.
                       </div>
                     )}
+
+                    {/* 3. Image Preview with Remove Button */}
                     {formData.main_image_url && !uploadingImage && (
-                      <div className="mt-3 p-3 border rounded bg-light text-center">
-                        <p className="small text-muted mb-2">Image Preview:</p>
+                      <div className="mt-3 p-3 border rounded bg-light text-center position-relative">
+                        <button
+                          type="button"
+                          className="btn-close position-absolute top-0 end-0 m-2"
+                          aria-label="Remove image"
+                          onClick={() => {
+                            if (confirm("Remove this image?")) {
+                              setFormData({ ...formData, main_image_url: '' });
+                            }
+                          }}
+                          title="Remove Image"
+                        ></button>
+
+                        <p className="small text-muted mb-2">Current Image:</p>
                         <img
                           src={formData.main_image_url}
                           alt="Hostel Preview"

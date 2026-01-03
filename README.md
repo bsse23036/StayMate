@@ -4,6 +4,13 @@
 
 ---
 
+## 🔗 Live Demo & Source Code
+
+- **Live Website:** [http://stay-mate-bucket.s3-website-us-east-1.amazonaws.com/](http://staymate-frontend-bucket.s3-website-us-east-1.amazonaws.com)
+- **GitHub Repository:** [Insert Your GitHub Repo Link Here](https://github.com/your-username/staymate)
+
+---
+
 ## Table of Contents
 
 - [Project Overview](#project-overview)
@@ -12,7 +19,6 @@
 - [AWS Services Used](#aws-services-used)
 - [Implementation](#implementation)
 - [Security](#security)
-<!-- - [Setup & Deployment](#setup--deployment) -->
 - [Results](#results)
 - [Future Work](#future-work)
 - [References](#references)
@@ -25,51 +31,56 @@ StayMate is a centralized platform designed to simplify the process of searching
 
 The platform ensures:
 
-- Verified listings for hostels and messes
-- Seamless booking flow
-- Notifications for booking confirmations
-- Cost-effective and scalable infrastructure
+- **Trust:** Verified listings with image galleries.
+- **Transparency:** Student reviews and ratings.
+- **Efficiency:** Streamlined booking workflows for both Hostels and Mess Services.
+- **Scalability:** Cost-effective infrastructure using AWS Learner Lab constraints.
 
 ---
 
 ## Features
 
-- **Search Hostels & Messes:** Filter by city, price range, and type
-- **Property Details:** View images, descriptions, and mess menus
-- **Booking System:** Create and manage bookings
-- **Property Management:** Owners can upload and manage listings using pre-signed S3 URLs
-- **Notifications:** Booking notifications via Amazon SNS
+### For Students
+
+- **Smart Search:** Filter Hostels and Messes by city, price range, and amenities.
+- **Detailed Listings:** View room types, facility images, and mess menus.
+- **Reviews & Ratings:** Read and write peer reviews for transparency.
+- **Booking Management:** Track booking status (Pending/Confirmed) and active subscriptions.
+
+### For Owners
+
+- **Hostel Dashboard:** Manage property details, room availability, and **Approve/Reject** booking requests.
+- **Mess Dashboard:** Manage monthly meal plans and view **Active Subscribers** (Instant Subscription model).
+- **Image Management:** Securely upload property images using S3 Pre-signed URLs.
 
 ---
 
 ## Architecture
 
-The system is designed with a **serverless architecture** for scalability and minimal operational overhead:
+The system utilizes a **Serverless 3-Tier Architecture** adapted for the AWS Academy Learner Lab environment:
 
-- **Frontend:** React.js hosted on Amazon S3 (Static Website Hosting)
-- **Backend:** AWS Lambda functions (Node.js or Python)
-- **API Layer:** Amazon API Gateway (REST API)
-- **Authentication:** Amazon Cognito User Pools
-- **Storage:** Amazon S3 for images and assets
-- **Notifications:** Amazon SNS
-- **Monitoring:** Amazon CloudWatch
-- **Networking:** Conceptual use of VPC, private subnets, NAT Gateway, and NLB
+1. **Frontend:** React.js application hosting on **Amazon S3** (Static Website Hosting).
+2. **API Layer:** **Amazon API Gateway** serving as the RESTful entry point.
+3. **Compute:** **AWS Lambda** (Node.js/Express) handling all business logic securely.
+4. **Storage:**
+   - **Amazon S3** for storing user-uploaded media (Hostel/Mess photos).
+   - **Amazon RDS (PostgreSQL)** for structured relational data (Users, Bookings, Reviews).
+5. **Monitoring:** **Amazon CloudWatch** for application logging and debugging.
 
-![Architecture Diagram](architecture_diagram_placeholder.png)
+![MVP Architecture Diagram](mvp_architecture_diagram.png)
 
 ---
 
 ## AWS Services Used
 
-| Service                 | Purpose                                   |
-| ----------------------- | ----------------------------------------- |
-| Amazon S3               | Static website hosting and image storage  |
-| AWS Lambda              | Backend business logic                    |
-| Amazon API Gateway      | RESTful APIs                              |
-| Amazon Cognito          | Authentication & authorization            |
-| Amazon SNS              | Booking notifications                     |
-| Amazon CloudWatch       | Monitoring & logging                      |
-| VPC / NAT Gateway / NLB | Network isolation and secure connectivity |
+| Service                | Purpose                                  |
+| ---------------------- | ---------------------------------------- |
+| **Amazon S3**          | Frontend hosting & Media (Image) storage |
+| **AWS Lambda**         | Serverless backend business logic        |
+| **Amazon API Gateway** | RESTful API management                   |
+| **Amazon RDS**         | PostgreSQL Database for relational data  |
+| **AWS IAM**            | Role-based permissions & security        |
+| **Amazon CloudWatch**  | Server logs & error monitoring           |
 
 ---
 
@@ -77,65 +88,67 @@ The system is designed with a **serverless architecture** for scalability and mi
 
 ### Frontend
 
-- Built with React.js and hosted on Amazon S3 as a static website
-- Responsive UI with hostel search, property details, and booking pages
+- Built with **React.js** and **Bootstrap 5**.
+- Consumes REST APIs to render dynamic dashboards for Students, Hostel Owners, and Mess Owners.
 
 ### Backend
 
-- AWS Lambda functions implement business logic such as:
-  - Searching listings
-  - Creating bookings
-  - Generating pre-signed URLs for image uploads
-- API Gateway exposes REST endpoints to the frontend
+- **Node.js (Express)** application wrapped in a monolithic AWS Lambda function.
+- Handles complex logic including:
+  - **Booking Approval Workflow** (Pending $\to$ Confirmed) for Hostels.
+  - **Instant Activation** logic for Mess Subscriptions.
+  - **S3 Pre-signed URL** generation for secure client-side uploads.
 
-### Image Upload Flow
+### Database (PostgreSQL)
 
-1. User requests permission to upload images
-2. Lambda generates a pre-signed S3 URL
-3. User uploads image directly to S3
-4. Image URL is stored in the database
+Relational schema designed to handle:
 
-### API Endpoints
+- Users (RBAC: Student, Hostel Owner, Mess Owner)
+- Hostels & Rooms (One-to-Many relationship)
+- Mess Services & Subscriptions
+- Reviews (Linked to Students and Properties)
 
-| Method | Endpoint      | Description                |
-| ------ | ------------- | -------------------------- |
-| GET    | /hostels      | Fetch listings             |
-| GET    | /hostels/{id} | Fetch details              |
-| POST   | /booking      | Create a booking           |
-| POST   | /upload-url   | Generate pre-signed S3 URL |
+### API Endpoints Overview
+
+| Method | Endpoint                | Description                                        |
+| :----- | :---------------------- | :------------------------------------------------- |
+| `GET`  | `/hostels`, `/messes`   | Search properties with filters                     |
+| `POST` | `/book`                 | Handle Room Booking (Pending) or Mess Sub (Active) |
+| `GET`  | `/bookings`             | Fetch Student Dashboard data                       |
+| `GET`  | `/mess-subscribers/:id` | Fetch Active Subscribers for Mess Owners           |
+| `POST` | `/get-upload-url`       | Generate secure S3 upload link                     |
 
 ---
 
 ## Security
 
-- Principle of **Least Privilege** applied in IAM roles
-- **Cognito Authorizers** secure API Gateway endpoints
-- Lambda functions run in private subnets (VPC)
-- NAT Gateway used for controlled outbound access
-- Private S3 buckets for image storage
+- **Data Privacy:** User passwords are hashed using **bcrypt** before storage.
+- **Network Security:** RDS is secured via Security Groups allowing traffic only from trusted sources.
+- **Access Control:** IAM Roles follow the principle of **Least Privilege** for Lambda and S3 access.
+- **Secure Uploads:** Direct S3 uploads are restricted via Pre-signed URLs with short expiration times.
 
 ---
 
 ## Results
 
-- Users can successfully browse listings, book hostels, and receive notifications
-- Property owners can manage listings with image uploads
-- AWS monitoring ensures system logs and metrics are captured
+- **Functional Marketplace:** Successfully connected students with service providers.
+- **Real-time Interaction:** Instant updates on dashboards for bookings and subscriptions.
+- **Cost Efficiency:** Zero idle server costs due to the serverless nature of Lambda and S3.
 
 ---
 
 ## Future Work
 
-- Integrate online payment gateways (Stripe, Razorpay)
-- Develop a mobile application using React Native
-- Implement AI-based recommendations for hostel matching
-- Add analytics dashboards for owners and administrators
+- **Payment Integration:** Stripe/Razorpay for processing security deposits.
+- **Real-time Chat:** Socket.io implementation for direct Student-Owner communication.
+- **AI Recommendations:** Machine learning model to suggest hostels based on user preferences.
+- **Mobile App:** React Native port for iOS and Android.
 
 ---
 
 ## References
 
-- Amazon Web Services Documentation – https://docs.aws.amazon.com
-- React.js Documentation – https://react.dev
-- Tailwind CSS Documentation – https://tailwindcss.com/docs
-- Roberts, M., Serverless Architectures on AWS, AWS Whitepapers
+- [AWS Lambda Documentation](https://docs.aws.amazon.com/lambda/)
+- [Amazon RDS for PostgreSQL](https://aws.amazon.com/rds/postgresql/)
+- [React.js Documentation](https://react.dev)
+- [Node-Postgres (pg) Library](https://node-postgres.com/)
